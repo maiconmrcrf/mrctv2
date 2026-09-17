@@ -34,7 +34,7 @@ os.makedirs(PASTA_PERFIS, exist_ok=True)
 PROXIES = ["chrome120", "chrome110", "safari_15_5"]
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
-URL_PUBLICA_BASE = "https://mrctv2.onrender.com/stream"
+URL_PUBLICA_BASE = "https://mrctv2-z1o5.onrender.com/stream"
 
 CANAIS_DISPONIVEIS = [
     "cazetv", "cazetv2", "cazetv3", "cazetv4", "cazetv5", "cazetv6",
@@ -410,6 +410,44 @@ def index():
     </body>
     </html>
     ''', canais_html=canais_html)
+
+@app.route('/diag/<canal>')
+def diag(canal):
+    out = []
+    canal = canal.strip('/').lower()
+    out.append(f"CANAL: {canal
+}")
+    variacoes = ALIASES.get(canal, [canal])
+    out.append(f"VARIAÇÕES: {variacoes}")
+
+    out.append("\n--- EMBEDS ---")
+    sess = criar_sessao("chrome120")
+    for var in variacoes:
+        for base in EMBEDS_DOMINIOS:
+            url = f"{base}/{var}"
+            try:
+                r = sess.get(url, headers={"User-Agent": USER_AGENT}, timeout=8, verify=False)
+                links = extrair_links_playlist(r.text) if r.status_code == 200 else []
+                out.append(f"{url} -> HTTP {r.status_code} | {len(r.text)} bytes | {len(links)} m3u8")
+            except Exception as e:
+                out.append(f"{url} -> ERRO: {e}")
+
+    out.append("\n--- BASE_SELENIUM ---")
+    for var in variacoes:
+        url = f"{BASE_SELENIUM}/{var}"
+        try:
+            r = SESSAO.get(url, timeout=10, verify=False)
+            out.append(f"{url} -> HTTP {r.status_code} | {len(r.text)} bytes")
+            if r.status_code == 200:
+                m = re.search(r'["\'](https?://[^"\']+\.m3u8[^"\']*)["\']', r.text)
+                out.append(f"  m3u8: {m.group(1) if m else 'NAO'}")
+        except Exception as e:
+            out.append(f"{url} -> ERRO: {e}")
+
+    out.append("\n--- PERFIS LOCAIS ---")
+    out.append(f"{listar_perfis()}")
+
+    return "<pre>" + "\n".join(out) + "</pre>", 200
 
 @app.route('/stream/<canal>')
 def rota_stream(canal):
