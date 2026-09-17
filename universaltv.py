@@ -1,4 +1,3 @@
-cat << 'EOF' > universaltv.py
 import os, sys, json, time, re, threading
 import urllib3
 from flask import Flask, Response, request
@@ -14,10 +13,7 @@ except ImportError:
     USE_CURL = False
 
 app = Flask(__name__)
-
-# Render define PORT automaticamente
 PORTA = int(os.environ.get("PORT", 9999))
-
 PASTA_PERFIS = os.path.expanduser("./canais_dados")
 os.makedirs(PASTA_PERFIS, exist_ok=True)
 
@@ -266,4 +262,3 @@ def ts_proxy():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=PORTA, threaded=True, debug=False, use_reloader=False)
-EOF
