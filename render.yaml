@@ -1,4 +1,3 @@
-cat > ~/render.yaml << 'EOF'
 services:
   - type: web
     name: mrctv2
