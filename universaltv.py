@@ -502,8 +502,8 @@ function debug() {
     }).join('\\n') + '</div>';
     if (d.resultado) {
       html += '<h2>RESULTADO</h2><div class="log">';
-      html += 'URL: ' + (d.resultado.url_pagina || '-')  + '\\n';
-      html += 'HTTP status: ' + (d.resultado.http_status || '-') + '\\n';
+      html += 'URL: ' + (d.resultado.url_pagina || '-') + '\\n';
+      html += 'HTTP status: ' + (        d.resultado.http_status || '-') + '\\n';
       html += 'Tamanho: ' + (d.resultado.content_length || '-') + '\\n';
       html += 'Selenium: ' + (d.resultado.selenium_usado ? 'SIM' : 'nao') + '\\n';
       html += 'Erro: ' + (d.resultado.erro || '-') + '</div>';
@@ -713,4 +713,3 @@ if __name__ == '__main__':
     print(f"  Public: {URL_PUBLICA}")
     print("=" * 50)
     app.run(host='0.0.0.0', port=PORTA, threaded=True, debug=False, use_reloader=False)
-PYEOF
