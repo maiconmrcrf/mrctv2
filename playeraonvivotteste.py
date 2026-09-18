@@ -15,24 +15,16 @@ except ImportError:
 app = Flask(__name__)
 PORTA = int(os.environ.get("PORT", 10000))
 
-# ============================================
-# CONFIGURAÇÃO — EDITE AQUI QUANDO MUDAR
-# ============================================
-LINK_CLOUDFLARE = "https://reports-gore-hardcover-twenty.trycloudflare.com"
-# ============================================
-
-MODO = "video" if os.path.exists("/data/data/com.termux") else "page"
-
 USER_AGENT = "Mozilla/5.0 (Android 15; Mobile; rv:155.0) Gecko/155.0 Firefox/155.0"
 COOKIE_FIXO = "bitmovin_analytics_uuid=a07b3c21-c8bc-4692-8761-53ffa4df341f"
 ORIGIN_FIXO = "https://bolodechocolate.fit"
 
 TS_CACHE = {}
 TS_CACHE_LOCK = threading.Lock()
-TS_CACHE_MAX = 300
-TS_CACHE_TEMPO = 120
+TS_CACHE_MAX = 500
+TS_CACHE_TEMPO = 180
 
-# ====== STREAM (Termux) ======
+# ====== SESSÃO ======
 def criar_sessao():
     if USE_CURL:
         try:
@@ -57,6 +49,7 @@ def obter_headers(canal):
         "Connection": "keep-alive",
     }
 
+# ====== CACHE EM MEMÓRIA ======
 def buscar_m3u8(canal):
     url = montar_url(canal)
     h = obter_headers(canal)
@@ -70,6 +63,7 @@ def buscar_m3u8(canal):
     return None, None
 
 def buscar_segmento(url_seg, canal):
+    # cache primeiro
     with TS_CACHE_LOCK:
         item = TS_CACHE.get(url_seg)
         if item:
@@ -100,285 +94,191 @@ HTML = '''
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MARCOS TV</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 <link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet" />
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { height: 100%; overflow-x: hidden; }
+  html, body { height: 100%; }
   body {
     font-family: 'Inter', -apple-system, Arial, sans-serif;
-    background: #06060a;
+    background: #000;
     color: #fff;
     min-height: 100vh;
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 20px;
-    position: relative;
-    overflow: hidden;
   }
-
-  .bg-orbs {
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
-    overflow: hidden;
-  }
-  .orb {
-    position: absolute;
-    border-radius: 50%;
-    filter: blur(100px);
-    opacity: 0.55;
-    animation: flutuar 18s ease-in-out infinite;
-  }
-  .orb1 {
-    width: 480px; height: 480px;
-    background: radial-gradient(circle, #6c5ce7 0%, transparent 70%);
-    top: -140px; left: -120px;
-    animation-delay: 0s;
-  }
-  .orb2 {
-    width: 420px; height: 420px;
-    background: radial-gradient(circle, #a29bfe 0%, transparent 70%);
-    bottom: -160px; right: -100px;
-    animation-delay: -6s;
-  }
-  .orb3 {
-    width: 380px; height: 380px;
-    background: radial-gradient(circle, #00b894 0%, transparent 70%);
-    top: 45%; left: 55%;
-    opacity: 0.35;
-    animation-delay: -12s;
-  }
-  @keyframes flutuar {
-    0%, 100% { transform: translate(0, 0) scale(1); }
-    33% { transform: translate(40px, -30px) scale(1.08); }
-    66% { transform: translate(-30px, 30px) scale(0.95); }
-  }
-
-  .grid-bg {
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
-    background-image:
-      linear-gradient(rgba(108, 92, 231, 0.06) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(108, 92, 231, 0.06) 1px, transparent 1px);
-    background-size: 60px 60px;
-    mask-image: radial-gradient(ellipse at center, #000 20%, transparent 75%);
-    -webkit-mask-image: radial-gradient(ellipse at center, #000 20%, transparent 75%);
-  }
-
   .app {
     width: 100%;
-    max-width: 900px;
-    position: relative;
-    z-index: 1;
+    max-width: 960px;
   }
 
-  .brand {
+  /* ===== HEADER ===== */
+  .header {
     text-align: center;
-    margin-bottom: 28px;
-    animation: aparecer 0.8s ease-out;
+    margin-bottom: 32px;
   }
-  .brand h1 {
+  .header h1 {
     font-size: clamp(2.4em, 9vw, 4em);
     font-weight: 900;
-    letter-spacing: 3px;
-    background: linear-gradient(135deg, #ffffff 0%, #a29bfe 45%, #6c5ce7 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    letter-spacing: 4px;
+    color: #fff;
     margin-bottom: 8px;
-    text-shadow: 0 0 60px rgba(108, 92, 231, 0.5);
-    filter: drop-shadow(0 0 30px rgba(108, 92, 231, 0.4));
+    text-shadow: 0 0 40px rgba(255, 255, 255, 0.15);
   }
-  .brand .sub {
-    color: #a29bfe;
+  .header .sub {
+    color: #666;
     font-size: 0.72em;
     letter-spacing: 6px;
     font-weight: 500;
     text-transform: uppercase;
-    opacity: 0.9;
+  }
+  .header .divider {
+    width: 60px;
+    height: 2px;
+    background: #fff;
+    margin: 18px auto 0;
+    border-radius: 2px;
+    opacity: 0.3;
   }
 
-  .player-card {
-    background: rgba(15, 15, 25, 0.72);
-    backdrop-filter: blur(24px) saturate(150%);
-    -webkit-backdrop-filter: blur(24px) saturate(150%);
-    border: 1px solid rgba(108, 92, 231, 0.25);
-    border-radius: 24px;
-    padding: 20px;
-    box-shadow:
-      0 30px 80px rgba(0, 0, 0, 0.7),
-      0 0 120px rgba(108, 92, 231, 0.15),
-      inset 0 1px 0 rgba(255, 255, 255, 0.05);
-    animation: aparecer 1s ease-out 0.15s both;
-    position: relative;
-    overflow: hidden;
+  /* ===== PLAYER CARD ===== */
+  .player-wrap {
+    background: #0a0a0a;
+    border: 1px solid #1a1a1a;
+    border-radius: 18px;
+    padding: 14px;
+    margin-bottom: 20px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.9);
   }
-  .player-card::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(162, 155, 254, 0.6), transparent);
-  }
-
   .video-js {
     width: 100%;
-    height: 440px;
-    border-radius: 16px;
+    height: 480px;
+    border-radius: 10px;
     overflow: hidden;
     background: #000;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
   }
-  @media (max-width: 640px) { .video-js { height: 220px; } }
+  @media (max-width: 640px) { .video-js { height: 240px; } }
 
+  /* ===== CONTROLES ===== */
   .controls {
     display: flex;
-    gap: 12px;
-    margin-top: 18px;
+    gap: 10px;
     flex-wrap: wrap;
   }
   .controls input {
     flex: 1;
-    min-width: 160px;
-    background: rgba(10, 10, 18, 0.9);
-    border: 1.5px solid rgba(108, 92, 231, 0.3);
+    min-width: 180px;
+    background: #0a0a0a;
+    border: 1.5px solid #1f1f1f;
     color: #fff;
-    padding: 15px 18px;
-    border-radius: 14px;
+    padding: 16px 18px;
+    border-radius: 12px;
     font-family: 'Inter', sans-serif;
     font-size: 1em;
     font-weight: 500;
     outline: none;
-    transition: all 0.25s ease;
+    transition: border-color 0.2s;
     letter-spacing: 0.3px;
   }
-  .controls input:focus {
-    border-color: #6c5ce7;
-    box-shadow: 0 0 0 4px rgba(108, 92, 231, 0.15), 0 0 30px rgba(108, 92, 231, 0.25);
-    background: rgba(15, 15, 25, 0.95);
-  }
+  .controls input:focus { border-color: #fff; }
   .controls input::placeholder { color: #555; font-weight: 400; }
 
   .controls button {
-    background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%);
-    color: #fff;
+    background: #fff;
+    color: #000;
     border: none;
-    padding: 15px 32px;
-    border-radius: 14px;
+    padding: 16px 36px;
+    border-radius: 12px;
     font-family: 'Inter', sans-serif;
     font-weight: 700;
     font-size: 1em;
-    letter-spacing: 1px;
+    letter-spacing: 1.5px;
     cursor: pointer;
-    transition: all 0.25s ease;
-    box-shadow:
-      0 10px 30px rgba(108, 92, 231, 0.4),
-      inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    transition: all 0.2s ease;
     display: flex;
     align-items: center;
     gap: 10px;
-    position: relative;
-    overflow: hidden;
   }
-  .controls button::before {
-    content: '';
-    position: absolute;
-    top: 0; left: -100%;
-    width: 100%; height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent);
-    transition: left 0.5s;
-  }
-  .controls button:hover::before { left: 100%; }
   .controls button:hover {
-    transform: translateY(-3px);
-    box-shadow:
-      0 15px 40px rgba(108, 92, 231, 0.55),
-      0 0 60px rgba(162, 155, 254, 0.3),
-      inset 0 1px 0 rgba(255, 255, 255, 0.3);
-  }
-  .controls button:active {
+    background: #e5e5e5;
     transform: translateY(-1px);
-    box-shadow: 0 8px 20px rgba(108, 92, 231, 0.4);
+    box-shadow: 0 8px 24px rgba(255, 255, 255, 0.15);
   }
+  .controls button:active { transform: translateY(0); }
   .controls button:disabled {
-    opacity: 0.45;
+    opacity: 0.4;
     cursor: not-allowed;
     transform: none;
     box-shadow: none;
   }
 
+  /* ===== FOOTER ===== */
   .footer {
     text-align: center;
-    color: #444;
-    font-size: 0.72em;
+    color: #333;
+    font-size: 0.7em;
     letter-spacing: 2px;
-    margin-top: 22px;
+    margin-top: 24px;
     font-weight: 500;
-    animation: aparecer 1s ease-out 0.3s both;
   }
 
-  @keyframes aparecer {
-    from { opacity: 0; transform: translateY(20px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-
+  /* ===== VIDEO.JS CUSTOM ===== */
   .video-js .vjs-big-play-button {
-    background: linear-gradient(135deg, rgba(108, 92, 231, 0.9), rgba(162, 155, 254, 0.9));
+    background: rgba(255, 255, 255, 0.95);
     border: none;
-    width: 90px;
-    height: 90px;
-    line-height: 90px;
+    width: 80px;
+    height: 80px;
+    line-height: 80px;
     border-radius: 50%;
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    box-shadow: 0 10px 40px rgba(108, 92, 231, 0.5);
-    transition: all 0.3s ease;
+    transition: transform 0.25s ease;
+  }
+  .video-js .vjs-big-play-button .vjs-icon-placeholder:before {
+    color: #000;
+    font-size: 2em;
+    line-height: 80px;
   }
   .video-js .vjs-big-play-button:hover {
-    transform: translate(-50%, -50%) scale(1.1);
-    box-shadow: 0 15px 50px rgba(108, 92, 231, 0.7);
+    background: #fff;
+    transform: translate(-50%, -50%) scale(1.08);
   }
   .video-js .vjs-control-bar {
-    background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
-    height: 50px;
+    background: rgba(0, 0, 0, 0.85);
+    height: 44px;
   }
   .video-js .vjs-play-progress {
-    background: linear-gradient(90deg, #6c5ce7, #a29bfe);
+    background: #fff;
   }
   .video-js .vjs-load-progress {
-    background: rgba(162, 155, 254, 0.2);
+    background: rgba(255, 255, 255, 0.2);
+  }
+  .video-js .vjs-slider {
+    background: rgba(255, 255, 255, 0.15);
   }
 </style>
 </head>
 <body>
-  <div class="bg-orbs">
-    <div class="orb orb1"></div>
-    <div class="orb orb2"></div>
-    <div class="orb orb3"></div>
-  </div>
-  <div class="grid-bg"></div>
-
   <div class="app">
-    <div class="brand">
+    <div class="header">
       <h1>MARCOS TV</h1>
       <div class="sub">Premium Streaming</div>
+      <div class="divider"></div>
     </div>
 
-    <div class="player-card">
-      <video id="player" class="video-js" controls playsinline preload="auto"></video>
-      <div class="controls">
-        <input id="canal" type="text" placeholder="Digite o nome do canal" autocomplete="off">
-        <button id="btnPlay" onclick="tocar()">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-          PLAY
-        </button>
-      </div>
+    <div class="player-wrap">
+      <video id="player" class="video-js" controls playsinline preload="none"></video>
+    </div>
+
+    <div class="controls">
+      <input id="canal" type="text" placeholder="Digite o nome do canal" autocomplete="off" spellcheck="false">
+      <button id="btnPlay" onclick="tocar()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        PLAY
+      </button>
     </div>
 
     <div class="footer">© MARCOS TV</div>
@@ -389,70 +289,40 @@ HTML = '''
 var player = videojs('player', {
   controls: true,
   autoplay: false,
-  preload: 'auto',
+  preload: 'none',
   html5: { vhs: { overrideNative: true } }
 });
 var btn = document.getElementById('btnPlay');
 var input = document.getElementById('canal');
-var MODO = "{{ modo }}";
-var LINK_CLOUDFLARE = "{{ link_cloudflare }}";
-
-function fetchComTimeout(url, ms) {
-  return new Promise((resolve, reject) => {
-    var controller = new AbortController();
-    var t = setTimeout(() => { controller.abort(); reject(new Error('timeout')); }, ms);
-    fetch(url, { signal: controller.signal, mode: 'cors' })
-      .then(r => { clearTimeout(t); resolve(r); })
-      .catch(e => { clearTimeout(t); reject(e); });
-  });
-}
 
 function tocar() {
   var canal = input.value.trim().toLowerCase();
   if (!canal) { input.focus(); return; }
-
   btn.disabled = true;
-  var candidatos = [];
 
-  if (MODO === 'page') {
-    // SÓ Cloudflare — sem fallback pro Render
-    if (LINK_CLOUDFLARE) candidatos.push(LINK_CLOUDFLARE.replace(/\\/$/, ''));
-  } else {
-    candidatos.push('');
-  }
+  var urlTest = '/testar/' + encodeURIComponent(canal);
+  var t = setTimeout(function(){ btn.disabled = false; }, 9000);
 
-  if (!candidatos.length) { btn.disabled = false; return; }
-
-  var respostas = 0;
-  var ganhou = false;
-
-  candidatos.forEach(function(base) {
-    var urlTest = base + '/testar/' + encodeURIComponent(canal);
-    fetchComTimeout(urlTest, 8000)
-      .then(r => r.json())
-      .then(d => {
-        respostas++;
-        if (ganhou) return;
-        if (d && d.ok) {
-          ganhou = true;
-          btn.disabled = false;
-          var src = base + '/play/' + encodeURIComponent(canal);
-          player.src({ src: src, type: 'application/x-mpegURL' });
-          player.play().catch(function(){});
-        } else if (respostas === candidatos.length) {
-          btn.disabled = false;
-        }
-      })
-      .catch(() => {
-        respostas++;
-        if (!ganhou && respostas === candidatos.length) {
-          btn.disabled = false;
-        }
-      });
-  });
+  fetch(urlTest, { mode: 'cors' })
+    .then(r => r.json())
+    .then(d => {
+      clearTimeout(t);
+      btn.disabled = false;
+      if (d && d.ok) {
+        var src = '/play/' + encodeURIComponent(canal);
+        player.src({ src: src, type: 'application/x-mpegURL' });
+        player.play().catch(function(){});
+      }
+    })
+    .catch(function() {
+      clearTimeout(t);
+      btn.disabled = false;
+    });
 }
 
-input.addEventListener('keydown', function(e) { if (e.key === 'Enter') tocar(); });
+input.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') tocar();
+});
 </script>
 </body>
 </html>
@@ -468,11 +338,7 @@ def cors(r):
 
 @app.route('/')
 def index():
-    return render_template_string(
-        HTML,
-        modo=MODO,
-        link_cloudflare=LINK_CLOUDFLARE
-    )
+    return render_template_string(HTML)
 
 @app.route('/testar/<canal>')
 def testar(canal):
@@ -554,20 +420,9 @@ def ts_proxy():
     return Response(conteudo, status=200, headers={
         'Content-Type': 'video/mp2t',
         'Content-Length': str(len(conteudo)),
-        'Cache-Control': 'public, max-age=60',
+        'Cache-Control': 'public, max-age=120',
         'Accept-Ranges': 'bytes'
     })
 
 if __name__ == '__main__':
-    print("=" * 55)
-    print(f"  MARCOS TV - MODO: {MODO.upper()}")
-    print("=" * 55)
-    if MODO == "video":
-        print(f"  Rodando no Termux (porta {PORTA})")
-        print(f"  Ative o tunel:")
-        print(f"    cloudflared tunnel --url http://localhost:{PORTA}")
-    else:
-        print(f"  Rodando no Render (pagina HTML)")
-        print(f"  Cloudflare: {LINK_CLOUDFLARE}")
-    print("=" * 55)
     app.run(host='0.0.0.0', port=PORTA, threaded=True, debug=False, use_reloader=False)
