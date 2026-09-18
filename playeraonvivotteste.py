@@ -19,7 +19,7 @@ PORTA = int(os.environ.get("PORT", 10000))
 # CONFIGURAÇÃO — EDITE AQUI QUANDO MUDAR
 # ============================================
 LINK_SERVEO = "https://tvmrc1.serveousercontent.com"
-LINK_CLOUDFLARE = "https://gis-momentum-mean-mine.trycloudflare.com"
+LINK_CLOUDFLARE = "https://reserves-org-addition-subject.trycloudflare.com"
 # ============================================
 
 # Detecta modo automaticamente
