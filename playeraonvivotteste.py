@@ -1,6 +1,6 @@
 import os, re, json, time, threading
 import urllib3
-from flask import Flask, Response, request, render_template_string, jsonify
+from flask import Flask, Response, request, render_template_string
 from urllib.parse import urljoin, quote, unquote
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -15,9 +15,21 @@ except ImportError:
 app = Flask(__name__)
 PORTA = int(os.environ.get("PORT", 10000))
 
+URL_PUBLICA = os.environ.get("URL_PUBLICA", "")
+
+def url_base():
+    if URL_PUBLICA:
+        return URL_PUBLICA.rstrip("/")
+    return request.host_url.rstrip("/")
+
 USER_AGENT = "Mozilla/5.0 (Android 15; Mobile; rv:155.0) Gecko/155.0 Firefox/155.0"
 COOKIE_FIXO = "bitmovin_analytics_uuid=a07b3c21-c8bc-4692-8761-53ffa4df341f"
 ORIGIN_FIXO = "https://bolodechocolate.fit"
+
+TS_CACHE = {}
+TS_CACHE_LOCK = threading.Lock()
+TS_CACHE_MAX = 300
+TS_CACHE_TEMPO = 120
 
 # ====== CANAIS FIXOS NA INTERFACE ======
 CANAIS_FIXOS = [
@@ -30,21 +42,10 @@ CANAIS_FIXOS = [
     "space",
 ]
 
-# ====== CACHE DE STREAM ======
-STREAM_CACHE = {}
-STREAM_LOCK = threading.Lock()
-STREAM_TEMPO = 10
-
-# ====== CACHE DE SEGMENTOS ======
-TS_CACHE = {}
-TS_CACHE_LOCK = threading.Lock()
-TS_CACHE_MAX = 800
-TS_CACHE_TEMPO = 300
-
-def criar_sessao():
+def criar_sessao(imp=None):
     if USE_CURL:
         try:
-            return ImpersonateSession.Session(impersonate="firefox133")
+            return ImpersonateSession.Session(impersonate=imp or "firefox133")
         except Exception:
             pass
     return ImpersonateSession.Session()
@@ -53,175 +54,180 @@ def montar_url(canal):
     canal = canal.strip().lower()
     return f"https://f8umt2oop68t.sbs/live/secure/pHGsJJgoEUBc-K5ACe7Hws--gF0WDhHii_3tGSGwoq4/1789760848/1d256d1fe0127694/{canal}/index.m3u8"
 
-def obter_headers(canal):
+def montar_referer(canal):
     canal = canal.strip().lower()
+    return f"{ORIGIN_FIXO}/play/{canal}.html"
+
+def obter_headers(canal):
     return {
         "User-Agent": USER_AGENT,
         "Accept": "*/*",
         "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
         "Origin": ORIGIN_FIXO,
-        "Referer": f"{ORIGIN_FIXO}/play/{canal}.html",
+        "Referer": montar_referer(canal),
         "Cookie": COOKIE_FIXO,
         "Connection": "keep-alive",
     }
 
-def buscar_m3u8(canal, forcar=False):
-    canal_l = canal.strip().lower()
-    if not forcar:
-        with STREAM_LOCK:
-            item = STREAM_CACHE.get(canal_l)
-            if item:
-                texto, url_base, ts = item
-                if time.time() - ts < STREAM_TEMPO:
-                    return texto, url_base
-
+def buscar_m3u8(canal):
+    """Baixa o m3u8 do canal. Retorna (resp, url) ou (None, None)."""
     url = montar_url(canal)
     h = obter_headers(canal)
-    sess = criar_sessao()
+    sess = criar_sessao("firefox133")
     try:
         r = sess.get(url, headers=h, timeout=15, verify=False)
         if r.status_code == 200 and ("#EXTM3U" in r.text or "#EXT-X" in r.text):
-            base = getattr(r, 'url', url)
-            with STREAM_LOCK:
-                STREAM_CACHE[canal_l] = (r.text, str(base), time.time())
-            return r.text, str(base)
+            return r, url
     except Exception:
         pass
     return None, None
 
-def buscar_segmento(url_seg, canal):
+def buscar_segmento(url_segmento, canal):
+    """Baixa um .ts do canal. Tenta cache primeiro."""
     with TS_CACHE_LOCK:
-        item = TS_CACHE.get(url_seg)
+        item = TS_CACHE.get(url_segmento)
         if item:
             dados, t = item
             if time.time() - t < TS_CACHE_TEMPO:
                 return dados, 200
 
     h = obter_headers(canal)
-    for tent in range(3):
-        sess = criar_sessao()
-        try:
-            r = sess.get(url_seg, headers=h, timeout=25, verify=False)
-            if r.status_code == 200:
-                with TS_CACHE_LOCK:
-                    if len(TS_CACHE) >= TS_CACHE_MAX:
-                        mais = min(TS_CACHE.items(), key=lambda kv: kv[1][1])
-                        del TS_CACHE[mais[0]]
-                    TS_CACHE[url_seg] = (r.content, time.time())
-                return r.content, 200
-            if r.status_code in (403, 404):
-                return None, r.status_code
-        except Exception:
-            time.sleep(0.4)
-    return None, 502
+    sess = criar_sessao("firefox133")
+    try:
+        r = sess.get(url_segmento, headers=h, timeout=20, verify=False)
+        if r.status_code == 200:
+            with TS_CACHE_LOCK:
+                if len(TS_CACHE) >= TS_CACHE_MAX:
+                    mais = min(TS_CACHE.items(), key=lambda kv: kv[1][1])
+                    del TS_CACHE[mais[0]]
+                TS_CACHE[url_segmento] = (r.content, time.time())
+            return r.content, 200
+        return None, r.status_code
+    except Exception:
+        return None, 500
 
-HTML = '''
+# ============ HTML ============
+HTML_PAGINA = '''
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MARCOS TV</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
 <link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet" />
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
   body {
     font-family: 'Inter', -apple-system, Arial, sans-serif;
-    background: #03060f;
+    background: radial-gradient(ellipse at top, #1a1a2e 0%, #0a0a0f 60%);
     color: #fff;
     min-height: 100vh;
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: center;
     padding: 20px;
-    position: relative;
-    overflow-x: hidden;
   }
-
-  .bg-glow { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
-  .glow {
-    position: absolute;
-    border-radius: 50%;
-    filter: blur(120px);
-    animation: pulsar 8s ease-in-out infinite;
+  .app {
+    width: 100%;
+    max-width: 900px;
   }
-  .glow1 {
-    width: 600px; height: 600px;
-    background: radial-gradient(circle, #00a8ff 0%, transparent 70%);
-    top: -200px; left: -180px;
-    opacity: 0.5;
+  .brand {
+    text-align: center;
+    margin-bottom: 28px;
   }
-  .glow2 {
-    width: 520px; height: 520px;
-    background: radial-gradient(circle, #0066ff 0%, transparent 70%);
-    bottom: -180px; right: -160px;
-    opacity: 0.45;
-    animation-delay: -4s;
-  }
-  @keyframes pulsar {
-    0%, 100% { transform: scale(1); opacity: 0.45; }
-    50% { transform: scale(1.15); opacity: 0.65; }
-  }
-  .grid-bg {
-    position: fixed; inset: 0; z-index: 0; pointer-events: none;
-    background-image:
-      linear-gradient(rgba(0, 168, 255, 0.06) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(0, 168, 255, 0.06) 1px, transparent 1px);
-    background-size: 50px 50px;
-    mask-image: radial-gradient(ellipse at center, #000 10%, transparent 70%);
-    -webkit-mask-image: radial-gradient(ellipse at center, #000 10%, transparent 70%);
-  }
-
-  .app { width: 100%; max-width: 960px; position: relative; z-index: 1; }
-
-  .header { text-align: center; margin-bottom: 26px; }
-  .header h1 {
-    font-size: clamp(2.2em, 8vw, 3.6em);
+  .brand h1 {
+    font-size: clamp(2.2em, 8vw, 3.5em);
     font-weight: 900;
-    letter-spacing: 4px;
-    color: #fff;
+    letter-spacing: 2px;
+    background: linear-gradient(135deg, #ffffff 0%, #a29bfe 50%, #6c5ce7 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
     margin-bottom: 6px;
-    text-shadow:
-      0 0 20px rgba(0, 168, 255, 0.7),
-      0 0 60px rgba(0, 168, 255, 0.4);
+    text-shadow: 0 0 40px rgba(108, 92, 231, 0.3);
   }
-  .header .sub {
-    color: #00a8ff;
-    font-size: 0.7em;
-    letter-spacing: 6px;
+  .brand .sub {
+    color: #6c5ce7;
+    font-size: 0.75em;
+    letter-spacing: 4px;
     font-weight: 600;
     text-transform: uppercase;
-    text-shadow: 0 0 20px rgba(0, 168, 255, 0.5);
+    opacity: 0.8;
   }
-  .header .divider {
-    width: 80px; height: 2px;
-    background: linear-gradient(90deg, transparent, #00a8ff, transparent);
-    margin: 16px auto 0;
-    border-radius: 2px;
-    box-shadow: 0 0 20px rgba(0, 168, 255, 0.8);
-  }
-
-  /* ===== PLAYER ===== */
-  .player-wrap {
-    background: #080c18;
-    border: 1px solid rgba(0, 168, 255, 0.25);
-    border-radius: 18px;
-    padding: 14px;
-    margin-bottom: 16px;
-    box-shadow:
-      0 25px 70px rgba(0, 0, 0, 0.9),
-      0 0 60px rgba(0, 168, 255, 0.15),
-      inset 0 1px 0 rgba(0, 168, 255, 0.1);
+  .player-card {
+    background: rgba(20, 20, 31, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(108, 92, 231, 0.25);
+    border-radius: 20px;
+    padding: 18px;
+    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6), 0 0 80px rgba(108, 92, 231, 0.1);
+    margin-bottom: 18px;
   }
   .video-js {
-    width: 100%; height: 420px;
-    border-radius: 10px; overflow: hidden; background: #000;
+    width: 100%;
+    height: 420px;
+    border-radius: 14px;
+    overflow: hidden;
+    background: #000;
   }
   @media (max-width: 640px) { .video-js { height: 220px; } }
+  .controls {
+    display: flex;
+    gap: 10px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+  }
+  .controls input {
+    flex: 1;
+    min-width: 160px;
+    background: rgba(13, 13, 20, 0.9);
+    border: 1.5px solid rgba(108, 92, 231, 0.3);
+    color: #fff;
+    padding: 14px 16px;
+    border-radius: 12px;
+    font-family: 'Inter', sans-serif;
+    font-size: 1em;
+    font-weight: 500;
+    outline: none;
+    transition: all 0.2s;
+  }
+  .controls input:focus {
+    border-color: #6c5ce7;
+    box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.15);
+  }
+  .controls input::placeholder { color: #555; }
+  .controls button {
+    background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%);
+    color: #fff;
+    border: none;
+    padding: 14px 28px;
+    border-radius: 12px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 700;
+    font-size: 1em;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 8px 20px rgba(108, 92, 231, 0.35);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .controls button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 28px rgba(108, 92, 231, 0.5);
+  }
+  .controls button:active { transform: translateY(0); }
+  .controls button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+  }
 
-  /* ===== CANAIS FIXOS ===== */
+  /* ===== CANAIS FIXOS NEON ===== */
   .canais-fixos {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
@@ -229,171 +235,81 @@ HTML = '''
     margin-bottom: 16px;
   }
   .canal-btn {
-    background: rgba(8, 12, 24, 0.85);
-    border: 1px solid rgba(0, 168, 255, 0.3);
-    color: #00d4ff;
+    background: rgba(20, 20, 31, 0.7);
+    border: 1.5px solid rgba(108, 92, 231, 0.4);
+    color: #a29bfe;
     padding: 14px 8px;
-    border-radius: 10px;
+    border-radius: 12px;
     font-family: 'Inter', sans-serif;
     font-weight: 700;
-    font-size: 0.82em;
+    font-size: 0.8em;
     letter-spacing: 1.2px;
     text-transform: uppercase;
     cursor: pointer;
     transition: all 0.2s ease;
     text-align: center;
-    text-shadow: 0 0 8px rgba(0, 212, 255, 0.5);
-    box-shadow: inset 0 0 20px rgba(0, 168, 255, 0.05);
+    text-shadow: 0 0 10px rgba(162, 155, 254, 0.6);
   }
   .canal-btn:hover {
-    background: rgba(0, 168, 255, 0.12);
-    border-color: #00a8ff;
+    background: rgba(108, 92, 231, 0.15);
+    border-color: #a29bfe;
     color: #fff;
-    text-shadow: 0 0 14px rgba(0, 212, 255, 0.9);
-    box-shadow:
-      0 0 25px rgba(0, 168, 255, 0.35),
-      inset 0 0 20px rgba(0, 168, 255, 0.15);
+    text-shadow: 0 0 16px rgba(162, 155, 254, 1);
+    box-shadow: 0 0 25px rgba(108, 92, 231, 0.4);
     transform: translateY(-2px);
   }
-  .canal-btn:active {
-    transform: translateY(0);
-  }
+  .canal-btn:active { transform: translateY(0); }
   .canal-btn.ativo {
-    background: linear-gradient(135deg, rgba(0, 168, 255, 0.25), rgba(0, 102, 255, 0.25));
-    border-color: #00d4ff;
+    background: linear-gradient(135deg, rgba(108, 92, 231, 0.35), rgba(162, 155, 254, 0.35));
+    border-color: #a29bfe;
     color: #fff;
-    box-shadow:
-      0 0 30px rgba(0, 212, 255, 0.5),
-      inset 0 0 25px rgba(0, 168, 255, 0.25);
+    box-shadow: 0 0 30px rgba(108, 92, 231, 0.6);
   }
 
-  /* ===== CONTROLES ===== */
-  .controls {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-  .controls input {
-    flex: 1;
-    min-width: 180px;
-    background: #080c18;
-    border: 1.5px solid rgba(0, 168, 255, 0.3);
-    color: #fff;
-    padding: 16px 18px;
-    border-radius: 12px;
-    font-family: 'Inter', sans-serif;
-    font-size: 1em;
+  .status {
+    text-align: center;
+    margin-top: 14px;
+    font-size: 0.85em;
+    color: #888;
+    min-height: 20px;
     font-weight: 500;
-    outline: none;
-    transition: all 0.25s ease;
-    letter-spacing: 0.3px;
   }
-  .controls input:focus {
-    border-color: #00a8ff;
-    box-shadow:
-      0 0 0 3px rgba(0, 168, 255, 0.15),
-      0 0 30px rgba(0, 168, 255, 0.3);
-  }
-  .controls input::placeholder { color: #4a5570; font-weight: 400; }
-
-  .controls button {
-    background: linear-gradient(135deg, #00a8ff 0%, #0066ff 100%);
-    color: #fff;
-    border: none;
-    padding: 16px 36px;
-    border-radius: 12px;
-    font-family: 'Inter', sans-serif;
-    font-weight: 700;
-    font-size: 1em;
-    letter-spacing: 1.5px;
-    cursor: pointer;
-    transition: all 0.25s ease;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    box-shadow:
-      0 10px 30px rgba(0, 168, 255, 0.4),
-      inset 0 1px 0 rgba(255, 255, 255, 0.25);
-  }
-  .controls button:hover {
-    transform: translateY(-2px);
-    box-shadow:
-      0 15px 45px rgba(0, 168, 255, 0.6),
-      0 0 60px rgba(0, 168, 255, 0.4),
-      inset 0 1px 0 rgba(255, 255, 255, 0.3);
-  }
-  .controls button:active { transform: translateY(0); }
-  .controls button:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-    transform: none;
-    box-shadow: none;
-  }
-
+  .status.ok { color: #00b894; }
+  .status.err { color: #e74c3c; }
   .footer {
     text-align: center;
-    color: #2a3555;
-    font-size: 0.7em;
-    letter-spacing: 2px;
-    margin-top: 22px;
-    font-weight: 500;
+    color: #444;
+    font-size: 0.75em;
+    letter-spacing: 1px;
+    margin-top: 20px;
   }
-
-  /* ===== VIDEO.JS AZUL ===== */
-  .video-js .vjs-big-play-button {
-    background: linear-gradient(135deg, rgba(0, 168, 255, 0.95), rgba(0, 102, 255, 0.95));
-    border: none;
-    width: 80px; height: 80px; line-height: 80px;
-    border-radius: 50%;
-    top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
-    transition: transform 0.25s ease;
-    box-shadow: 0 10px 40px rgba(0, 168, 255, 0.6);
-  }
-  .video-js .vjs-big-play-button:hover {
-    transform: translate(-50%, -50%) scale(1.08);
-    box-shadow: 0 15px 55px rgba(0, 168, 255, 0.9);
-  }
-  .video-js .vjs-control-bar {
-    background: linear-gradient(to top, rgba(3, 6, 15, 0.95), transparent);
-    height: 46px;
-  }
-  .video-js .vjs-play-progress { background: linear-gradient(90deg, #00a8ff, #0066ff); }
-  .video-js .vjs-load-progress { background: rgba(0, 168, 255, 0.25); }
-  .video-js .vjs-slider { background: rgba(0, 168, 255, 0.15); }
-  .video-js .vjs-volume-level { background: #00a8ff; }
 </style>
 </head>
 <body>
-  <div class="bg-glow">
-    <div class="glow glow1"></div>
-    <div class="glow glow2"></div>
-  </div>
-  <div class="grid-bg"></div>
-
   <div class="app">
-    <div class="header">
+    <div class="brand">
       <h1>MARCOS TV</h1>
       <div class="sub">Premium Streaming</div>
-      <div class="divider"></div>
     </div>
 
-    <div class="player-wrap">
-      <video id="player" class="video-js" controls playsinline preload="none"></video>
-    </div>
+    <div class="player-card">
+      <video id="player" class="video-js" controls playsinline preload="auto"></video>
 
-    <div class="canais-fixos">
-      {% for c in canais %}
-      <div class="canal-btn" data-canal="{{ c }}" onclick="tocarFixo('{{ c }}', this)">{{ c }}</div>
-      {% endfor %}
-    </div>
+      <div class="canais-fixos">
+        {% for c in canais %}
+        <div class="canal-btn" data-canal="{{ c }}" onclick="tocarFixo('{{ c }}', this)">{{ c }}</div>
+        {% endfor %}
+      </div>
 
-    <div class="controls">
-      <input id="canal" type="text" placeholder="Digite outro canal" autocomplete="off" spellcheck="false">
-      <button id="btnPlay" onclick="tocar()">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-        PLAY
-      </button>
+      <div class="controls">
+        <input id="canal" type="text" placeholder="Nome do canal (ex: discoveryturbo)" autocomplete="off">
+        <button id="btnPlay" onclick="tocar()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          PLAY
+        </button>
+      </div>
+
+      <div class="status" id="status"></div>
     </div>
 
     <div class="footer">© MARCOS TV</div>
@@ -404,22 +320,20 @@ HTML = '''
 var player = videojs('player', {
   controls: true,
   autoplay: false,
-  preload: 'none',
-  html5: { vhs: { overrideNative: true } }
+  preload: 'auto',
+  fluid: false,
+  html5: {
+    vhs: { overrideNative: true }
+  }
 });
+var statusEl = document.getElementById('status');
 var btn = document.getElementById('btnPlay');
 var input = document.getElementById('canal');
 
-player.on('error', function() {
-  setTimeout(function() {
-    if (player.src() && player.src().indexOf('/play/') !== -1) {
-      var v = player.currentTime();
-      player.load();
-      if (v > 0) player.currentTime(v);
-      player.play().catch(function(){});
-    }
-  }, 1500);
-});
+function setStatus(msg, tipo) {
+  statusEl.className = 'status' + (tipo ? ' ' + tipo : '');
+  statusEl.innerText = msg || '';
+}
 
 function marcarAtivo(el) {
   document.querySelectorAll('.canal-btn').forEach(function(b){ b.classList.remove('ativo'); });
@@ -429,33 +343,34 @@ function marcarAtivo(el) {
 function tocarFixo(canal, el) {
   marcarAtivo(el);
   input.value = canal;
-  disparar(canal);
+  tocar();
 }
 
 function tocar() {
   var canal = input.value.trim().toLowerCase();
-  if (!canal) { input.focus(); return; }
-  marcarAtivo(null);
-  disparar(canal);
-}
-
-function disparar(canal) {
+  if (!canal) {
+    setStatus('Digite o nome do canal', 'err');
+    input.focus();
+    return;
+  }
+  setStatus('Carregando ' + canal + '...');
   btn.disabled = true;
-  var t = setTimeout(function(){ btn.disabled = false; }, 10000);
 
-  fetch('/testar/' + encodeURIComponent(canal), { mode: 'cors' })
+  fetch('/testar/' + encodeURIComponent(canal))
     .then(r => r.json())
     .then(d => {
-      clearTimeout(t);
       btn.disabled = false;
-      if (d && d.ok) {
+      if (d.ok) {
+        setStatus('Tocando: ' + canal, 'ok');
         player.src({ src: '/play/' + encodeURIComponent(canal), type: 'application/x-mpegURL' });
-        player.play().catch(function(){});
+        player.play().catch(function(e){ setStatus('Erro: ' + e.message, 'err'); });
+      } else {
+        setStatus(d.msg || 'Canal nao encontrado', 'err');
       }
     })
-    .catch(function() {
-      clearTimeout(t);
+    .catch(e => {
       btn.disabled = false;
+      setStatus('Erro: ' + e.message, 'err');
     });
 }
 
@@ -467,25 +382,26 @@ input.addEventListener('keydown', function(e) {
 </html>
 '''
 
-# ====== ROTAS ======
+# ============ ROTAS ============
 @app.after_request
 def cors(r):
     r.headers['Access-Control-Allow-Origin'] = '*'
     r.headers['Access-Control-Allow-Headers'] = '*'
-    r.headers['Access-Control-Allow-Methods'] = '*'
     return r
 
 @app.route('/')
 def index():
-    return render_template_string(HTML, canais=CANAIS_FIXOS)
+    return render_template_string(HTML_PAGINA, canais=CANAIS_FIXOS)
 
 @app.route('/testar/<canal>')
 def testar(canal):
     canal = canal.strip().lower()
     if not re.match(r'^[a-z0-9_\-]+$', canal):
-        return jsonify({"ok": False})
-    texto, _ = buscar_m3u8(canal)
-    return jsonify({"ok": bool(texto)})
+        return {"ok": False, "msg": "Nome invalido"}
+    r, _ = buscar_m3u8(canal)
+    if r:
+        return {"ok": True}
+    return {"ok": False, "msg": "Canal '" + canal + "' indisponivel"}
 
 @app.route('/play/<canal>')
 def play(canal):
@@ -493,12 +409,13 @@ def play(canal):
     if not re.match(r'^[a-z0-9_\-]+$', canal):
         return "Nome invalido", 400
 
-    texto, base = buscar_m3u8(canal)
-    if not texto:
+    r, url_orig = buscar_m3u8(canal)
+    if not r:
         return "Canal nao encontrado", 404
 
+    base = getattr(r, 'url', url_orig)
     linhas = []
-    for l in texto.splitlines():
+    for l in r.text.splitlines():
         ls = l.strip()
         if ls and not ls.startswith('#'):
             abs_url = urljoin(base, ls)
@@ -509,6 +426,7 @@ def play(canal):
 
     return Response("\n".join(linhas), status=200, headers={
         'Content-Type': 'application/vnd.apple.mpegurl',
+        'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'no-cache'
     })
 
@@ -520,7 +438,7 @@ def proxy_m3u8():
         return "Faltam parametros", 400
 
     h = obter_headers(canal)
-    sess = criar_sessao()
+    sess = criar_sessao("firefox133")
     try:
         r = sess.get(target, headers=h, timeout=12, verify=False)
         if r.status_code != 200:
@@ -539,6 +457,7 @@ def proxy_m3u8():
 
         return Response("\n".join(linhas), status=200, headers={
             'Content-Type': 'application/vnd.apple.mpegurl',
+            'Access-Control-Allow-Origin': '*',
             'Cache-Control': 'no-cache'
         })
     except Exception as e:
@@ -558,8 +477,9 @@ def ts_proxy():
     return Response(conteudo, status=200, headers={
         'Content-Type': 'video/mp2t',
         'Content-Length': str(len(conteudo)),
-        'Cache-Control': 'public, max-age=300',
-        'Accept-Ranges': 'bytes'
+        'Cache-Control': 'public, max-age=60',
+        'Accept-Ranges': 'bytes',
+        'Access-Control-Allow-Origin': '*'
     })
 
 if __name__ == '__main__':
