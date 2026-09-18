@@ -18,7 +18,6 @@ PORTA = int(os.environ.get("PORT", 10000))
 # ============================================
 # CONFIGURAÇÃO — EDITE AQUI QUANDO MUDAR
 # ============================================
-LINK_SERVEO = "https://tvmrc1.serveousercontent.com"
 LINK_CLOUDFLARE = "https://applying-terrorist-coding-sierra.trycloudflare.com"
 # ============================================
 
@@ -33,7 +32,7 @@ TS_CACHE_LOCK = threading.Lock()
 TS_CACHE_MAX = 300
 TS_CACHE_TEMPO = 120
 
-# ====== STREAM (Termux) ======
+# ====== STREAM ======
 def criar_sessao():
     if USE_CURL:
         try:
@@ -191,7 +190,6 @@ var player = videojs('player', { controls: true, autoplay: false, preload: 'auto
 var btn = document.getElementById('btnPlay');
 var input = document.getElementById('canal');
 var MODO = "{{ modo }}";
-var LINK_SERVEO = "{{ link_serveo }}";
 var LINK_CLOUDFLARE = "{{ link_cloudflare }}";
 
 function fetchComTimeout(url, ms) {
@@ -212,13 +210,13 @@ function tocar() {
   var candidatos = [];
 
   if (MODO === 'page') {
-    if (LINK_SERVEO) candidatos.push(LINK_SERVEO.replace(/\\/$/, ''));
+    // 1) Cloudflare (Termux) — preferido
     if (LINK_CLOUDFLARE) candidatos.push(LINK_CLOUDFLARE.replace(/\\/$/, ''));
+    // 2) Render (fallback) — sempre por último
+    candidatos.push('');
   } else {
     candidatos.push('');
   }
-
-  if (!candidatos.length) { btn.disabled = false; return; }
 
   var respostas = 0;
   var ganhou = false;
@@ -268,7 +266,6 @@ def index():
     return render_template_string(
         HTML,
         modo=MODO,
-        link_serveo=LINK_SERVEO,
         link_cloudflare=LINK_CLOUDFLARE
     )
 
@@ -362,10 +359,10 @@ if __name__ == '__main__':
     print("=" * 55)
     if MODO == "video":
         print(f"  Rodando no Termux (porta {PORTA})")
-        print(f"  Em outro terminal rode:")
-        print(f"    ssh -R tvmrc1:80:127.0.0.1:{PORTA} serveo.net")
+        print(f"  Ative o tunel em outro terminal:")
         print(f"    cloudflared tunnel --url http://localhost:{PORTA}")
     else:
         print(f"  Rodando no Render (pagina HTML)")
+        print(f"  Cloudflare: {LINK_CLOUDFLARE}")
     print("=" * 55)
     app.run(host='0.0.0.0', port=PORTA, threaded=True, debug=False, use_reloader=False)
