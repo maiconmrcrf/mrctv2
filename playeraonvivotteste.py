@@ -118,7 +118,6 @@ HTML = '''
     overflow: hidden;
   }
 
-  /* ===== FUNDO ALHO NEO ===== */
   .bg-orbs {
     position: fixed;
     inset: 0;
@@ -158,7 +157,6 @@ HTML = '''
     66% { transform: translate(-30px, 30px) scale(0.95); }
   }
 
-  /* ===== GRADE SUTIL ===== */
   .grid-bg {
     position: fixed;
     inset: 0;
@@ -172,7 +170,6 @@ HTML = '''
     -webkit-mask-image: radial-gradient(ellipse at center, #000 20%, transparent 75%);
   }
 
-  /* ===== APP ===== */
   .app {
     width: 100%;
     max-width: 900px;
@@ -330,7 +327,6 @@ HTML = '''
     to   { opacity: 1; transform: translateY(0); }
   }
 
-  /* ===== CUSTOM VIDEO.JS ===== */
   .video-js .vjs-big-play-button {
     background: linear-gradient(135deg, rgba(108, 92, 231, 0.9), rgba(162, 155, 254, 0.9));
     border: none;
@@ -419,18 +415,20 @@ function tocar() {
   var candidatos = [];
 
   if (MODO === 'page') {
+    // SÓ Cloudflare — sem fallback pro Render
     if (LINK_CLOUDFLARE) candidatos.push(LINK_CLOUDFLARE.replace(/\\/$/, ''));
-    candidatos.push('');
   } else {
     candidatos.push('');
   }
+
+  if (!candidatos.length) { btn.disabled = false; return; }
 
   var respostas = 0;
   var ganhou = false;
 
   candidatos.forEach(function(base) {
     var urlTest = base + '/testar/' + encodeURIComponent(canal);
-    fetchComTimeout(urlTest, 6000)
+    fetchComTimeout(urlTest, 8000)
       .then(r => r.json())
       .then(d => {
         respostas++;
