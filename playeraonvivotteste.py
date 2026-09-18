@@ -1,7 +1,7 @@
 import os, re, json, time, threading
 import urllib3
 from flask import Flask, Response, request, render_template_string
-from urllib.parse import urljoin, quote, unquote
+from urllib.parse import urljoin, quote, unquote, urlparse
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -23,7 +23,6 @@ except ImportError:
 app = Flask(__name__)
 PORTA = int(os.environ.get("PORT", 10000))
 
-# ====== URL PUBLICA ======
 URL_PUBLICA = os.environ.get("URL_PUBLICA", "")
 
 def url_base():
@@ -69,6 +68,45 @@ def criar_sessao(imp=None):
             pass
     return ImpersonateSession.Session()
 
+def origem_da_url(url):
+    """Deduz o Origin a partir da URL."""
+    try:
+        p = urlparse(url)
+        if p.scheme and p.netloc:
+            return f"{p.scheme}://{p.netloc}"
+    except Exception:
+        pass
+    return ""
+
+def normalizar_cfg_json(j, url_fallback=""):
+    """Aceita variações de chaves do JSON: origin/origem, referer/referrer, etc."""
+    url = (j.get("url") or j.get("link") or j.get("stream") or url_fallback or "").strip()
+
+    origin = (
+        j.get("origin")
+        or j.get("origem") if isinstance(j.get("origem"), str) and j.get("origem", "").startswith("http") else None
+    ) or j.get("Origin") or ""
+
+    if not origin and url:
+        origin = origem_da_url(url)
+
+    referer = (
+        j.get("referer")
+        or j.get("referrer")
+        or j.get("Referer")
+        or (origin + "/" if origin else "")
+    )
+
+    cfg = {
+        "url": url,
+        "user_agent": (j.get("user_agent") or j.get("userAgent") or j.get("User-Agent") or USER_AGENT).strip(),
+        "cookie": (j.get("cookie") or j.get("Cookie") or "").strip(),
+        "origin": origin.strip(),
+        "referer": referer.strip() if referer else "",
+        "extra_headers": j.get("extra_headers") or j.get("headers") or {},
+    }
+    return cfg
+
 def obter_headers(cfg):
     h = {
         "User-Agent": cfg.get("user_agent") or USER_AGENT,
@@ -79,6 +117,10 @@ def obter_headers(cfg):
     if cfg.get("cookie"): h["Cookie"] = cfg["cookie"]
     if cfg.get("origin"): h["Origin"] = cfg["origin"]
     if cfg.get("referer"): h["Referer"] = cfg["referer"]
+    extras = cfg.get("extra_headers") or {}
+    if isinstance(extras, dict):
+        for k, v in extras.items():
+            if k and v: h[str(k)] = str(v)
     return h
 
 def extrair_nome_canal(url):
@@ -121,8 +163,6 @@ def debug_extrair(url_pagina, log):
         "links_encontrados": [],
         "links_validados": [],
         "html_preview": None,
-        "cookies": None,
-        "selenium_usado": False,
         "erro": None
     }
 
@@ -139,7 +179,7 @@ def debug_extrair(url_pagina, log):
 
         if r.status_code == 200 and "#EXTM3U" in r.text:
             log.append("[HTTP] Ja e um m3u8 direto!")
-            return (r, url_pagina, {"user_agent": USER_AGENT}, "chrome120"), resultado
+            return (r, url_pagina, {"user_agent": USER_AGENT, "origin": origem_da_url(url_pagina), "referer": url_pagina}, "chrome120"), resultado
 
         if r.status_code == 200:
             links = extrair_links_playlist(r.text)
@@ -151,11 +191,11 @@ def debug_extrair(url_pagina, log):
                 if not lk.startswith("http"):
                     continue
                 try:
-                    r2 = sess.get(lk, headers={"User-Agent": USER_AGENT, "Referer": url_pagina}, timeout=10, verify=False)
+                    r2 = sess.get(lk, headers={"User-Agent": USER_AGENT, "Referer": url_pagina, "Origin": origem_da_url(url_pagina)}, timeout=10, verify=False)
                     if r2.status_code == 200 and ("#EXTM3U" in r2.text or "#EXT-X" in r2.text):
                         resultado["links_validados"].append(lk)
                         log.append(f"[HTTP] VALIDO: {lk[:100]}")
-                        cfg = {"user_agent": USER_AGENT, "referer": url_pagina}
+                        cfg = {"user_agent": USER_AGENT, "referer": url_pagina, "origin": origem_da_url(url_pagina)}
                         return (r2, lk, cfg, "chrome120"), resultado
                 except Exception as e:
                     log.append(f"[HTTP] link erro: {e}")
@@ -175,23 +215,18 @@ def buscar_stream(canal, bruto, log):
 
     try:
         j = json.loads(bruto)
-        cfg = {
-            "url": j.get("url", "").strip(),
-            "user_agent": j.get("user_agent", "").strip() or USER_AGENT,
-            "cookie": j.get("cookie", "").strip(),
-            "origin": j.get("origin", "").strip(),
-            "referer": j.get("referer", "").strip()
-        }
-        log.append(f"[INPUT] JSON url={cfg['url'][:100]}")
+        if isinstance(j, dict):
+            cfg = normalizar_cfg_json(j)
+            log.append(f"[INPUT] JSON url={cfg['url'][:100]} origin={cfg.get('origin','')[:60]}")
     except json.JSONDecodeError:
         pass
 
     if not cfg and bruto.startswith("http"):
         log.append(f"[INPUT] URL={bruto[:100]}")
         alvo = substituir_canal(bruto, canal)
-        cfg = {"url": alvo, "user_agent": USER_AGENT, "referer": alvo}
+        cfg = {"url": alvo, "user_agent": USER_AGENT, "referer": alvo, "origin": origem_da_url(alvo)}
 
-    if not cfg:
+    if not cfg or not cfg.get("url"):
         return None, None, None, None
 
     alvo = substituir_canal(cfg["url"], canal)
@@ -200,7 +235,7 @@ def buscar_stream(canal, bruto, log):
     for imp in PROXIES:
         try:
             sess = criar_sessao(imp)
-            r = sess.get(alvo, headers=obter_headers(cfg), timeout=10, verify=False)
+            r = sess.get(alvo, headers=obter_headers(cfg), timeout=12, verify=False)
             log.append(f"[CFG] {imp} status={r.status_code}")
             if r.status_code == 200 and ("#EXTM3U" in r.text or "#EXT-X" in r.text):
                 return (r, alvo, cfg, imp)
@@ -426,20 +461,43 @@ def play():
         return gerar_playlist(resp, url_a, cfg_usado, tunel)
     return f"Canal {canal} nao encontrado", 404
 
+def empacotar_params(url_abs, tunel, cfg):
+    """Gera query string enxuta preservando headers relevantes."""
+    q = f"url={quote(url_abs, safe='')}&tunel={tunel}"
+    origin = cfg.get("origin") or ""
+    referer = cfg.get("referer") or ""
+    cookie = cfg.get("cookie") or ""
+    ua = cfg.get("user_agent") or ""
+    if origin: q += f"&or={quote(origin, safe='')}"
+    if referer: q += f"&rf={quote(referer, safe='')}"
+    if cookie: q += f"&ck={quote(cookie, safe='')}"
+    if ua and ua != USER_AGENT: q += f"&ua={quote(ua, safe='')}"
+    return q
+
+def headers_do_request():
+    """Reconstrói cfg a partir dos params da query."""
+    tunel = request.args.get('tunel', 'chrome120')
+    origin = unquote(request.args.get('or', '') or '')
+    referer = unquote(request.args.get('rf', '') or '')
+    cookie = unquote(request.args.get('ck', '') or '')
+    ua = unquote(request.args.get('ua', '') or '')
+    cfg = {
+        "origin": origin,
+        "referer": referer,
+        "cookie": cookie,
+        "user_agent": ua or USER_AGENT,
+    }
+    return tunel, cfg
+
 def gerar_playlist(resp, url_a, cfg, tunel):
     linhas = []
     base = getattr(resp, 'url', url_a)
-    ref = quote(cfg.get("referer", "") or "", safe='')
-    ck = quote(cfg.get("cookie", "") or "", safe='')
     for l in resp.text.splitlines():
         ls = l.strip()
         if ls and not ls.startswith('#'):
             abs_url = urljoin(base, ls)
             ep = "/proxy_m3u8" if '.m3u8' in ls else "/ts_proxy"
-            q = f"url={quote(abs_url, safe='')}&tunel={tunel}"
-            if ref: q += f"&ref={ref}"
-            if ck: q += f"&ck={ck}"
-            linhas.append(f"{ep}?{q}")
+            linhas.append(f"{ep}?{empacotar_params(abs_url, tunel, cfg)}")
         else:
             linhas.append(ls)
     return Response("\n".join(linhas), status=200, headers={
@@ -450,30 +508,23 @@ def gerar_playlist(resp, url_a, cfg, tunel):
 @app.route('/proxy_m3u8')
 def proxy_m3u8():
     target = unquote(request.args.get('url', ''))
-    tunel = request.args.get('tunel', 'chrome120')
-    ref_custom = unquote(request.args.get('ref', '') or '')
-    ck_custom = unquote(request.args.get('ck', '') or '')
     if not target:
         return "URL ausente", 400
+    tunel, cfg = headers_do_request()
     sess = criar_sessao(tunel)
-    h = {"User-Agent": USER_AGENT, "Accept": "*/*"}
-    if ref_custom: h["Referer"] = ref_custom
-    if ck_custom: h["Cookie"] = ck_custom
+    h = obter_headers(cfg)
     try:
-        r = sess.get(target, headers=h, timeout=8, verify=False)
+        r = sess.get(target, headers=h, timeout=12, verify=False)
+        if r.status_code != 200:
+            return f"CDN retornou {r.status_code}", r.status_code
         linhas = []
         base = getattr(r, 'url', target)
-        ref_q = quote(ref_custom, safe='')
-        ck_q = quote(ck_custom, safe='')
         for l in r.text.splitlines():
             ls = l.strip()
             if ls and not ls.startswith('#'):
                 abs_url = urljoin(base, ls)
                 ep = "/proxy_m3u8" if '.m3u8' in ls else "/ts_proxy"
-                q = f"url={quote(abs_url, safe='')}&tunel={tunel}"
-                if ref_q: q += f"&ref={ref_q}"
-                if ck_q: q += f"&ck={ck_q}"
-                linhas.append(f"{ep}?{q}")
+                linhas.append(f"{ep}?{empacotar_params(abs_url, tunel, cfg)}")
             else:
                 linhas.append(ls)
         return Response("\n".join(linhas), status=200, headers={
@@ -486,9 +537,6 @@ def proxy_m3u8():
 @app.route('/ts_proxy')
 def ts_proxy():
     target = unquote(request.args.get('url', ''))
-    tunel = request.args.get('tunel', 'chrome120')
-    ref_custom = unquote(request.args.get('ref', '') or '')
-    ck_custom = unquote(request.args.get('ck', '') or '')
     if not target:
         return "URL ausente", 400
     with TS_CACHE_LOCK:
@@ -503,14 +551,13 @@ def ts_proxy():
                     'Accept-Ranges': 'bytes',
                     'Access-Control-Allow-Origin': '*'
                 })
+    tunel, cfg = headers_do_request()
     sess = criar_sessao(tunel)
-    h = {"User-Agent": USER_AGENT, "Accept": "*/*"}
-    if ref_custom: h["Referer"] = ref_custom
-    if ck_custom: h["Cookie"] = ck_custom
+    h = obter_headers(cfg)
     try:
-        r = sess.get(target, headers=h, timeout=15, verify=False)
+        r = sess.get(target, headers=h, timeout=20, verify=False)
         conteudo = r.content
-        with TS_CACHE_LOCK:
+                with TS_CACHE_LOCK:
             if len(TS_CACHE) >= TS_CACHE_MAX:
                 mais_antigo = min(TS_CACHE.items(), key=lambda kv: kv[1][1])
                 del TS_CACHE[mais_antigo[0]]
