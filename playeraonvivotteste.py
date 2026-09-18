@@ -22,6 +22,7 @@ except ImportError:
 
 app = Flask(__name__)
 PORTA = int(os.environ.get("PORT", 10000))
+
 URL_PUBLICA = os.environ.get("URL_PUBLICA", "")
 
 def url_base():
@@ -40,7 +41,8 @@ TS_CACHE_TEMPO = 120
 ARQ_SALVOS = "canais_salvos.json"
 CANAIS_LOCK = threading.Lock()
 
-DADOS_BRUTOS_PADRAO = json.dumps({
+# ============ DADOS BRUTO PADRÃO (pré-preenchido no textarea) ============
+BRUTO_PADRAO = '''{
     "perfil_nome": "canal_capturado",
     "url": "https://ywppjexvlyulasvmgzjdftfjikth1709oq80soveui6lkbi2iza2zf.cdn13embed.xyz/tnt/index.m3u8",
     "origem": "XHR",
@@ -50,7 +52,9 @@ DADOS_BRUTOS_PADRAO = json.dumps({
     "origin": "https://1709.cdnembedcanais.xyz",
     "referer": "https://1709.cdnembedcanais.xyz/tnt/",
     "extra_headers": {}
-}, indent=2, ensure_ascii=False)
+}'''
+# =========================================================================
+
 
 def carregar_salvos():
     if not os.path.exists(ARQ_SALVOS):
@@ -71,6 +75,7 @@ def salvar_em_disco(dados):
 
 CANAIS_SALVOS = carregar_salvos()
 
+
 def criar_sessao(imp=None):
     if USE_CURL:
         try:
@@ -79,12 +84,13 @@ def criar_sessao(imp=None):
             pass
     return ImpersonateSession.Session()
 
+
 def obter_headers(cfg):
     h = {
         "User-Agent": cfg.get("user_agent") or USER_AGENT,
         "Accept": "*/*",
         "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
-        "Connection": "keep-alive"
+        "Connection": "keep-alive",
     }
     if cfg.get("cookie"):
         h["Cookie"] = cfg["cookie"]
@@ -92,7 +98,11 @@ def obter_headers(cfg):
         h["Origin"] = cfg["origin"]
     if cfg.get("referer"):
         h["Referer"] = cfg["referer"]
+    for k, v in (cfg.get("extra_headers") or {}).items():
+        if k and v:
+            h[k] = v
     return h
+
 
 def extrair_nome_canal(url):
     m = re.search(r'/([^/]+)/index\.m3u8', url) or re.search(r'/([^/?]+)\.m3u8', url)
@@ -101,17 +111,18 @@ def extrair_nome_canal(url):
     m = re.search(r'/([^/?]+)/?$', url)
     return m.group(1).lower() if m else "canal"
 
+
 def substituir_canal(url_orig, canal):
-    if not canal or not url_orig:
-        return url_orig
     antigo = extrair_nome_canal(url_orig)
     if antigo and antigo != "canal":
         r = re.sub(rf'/{re.escape(antigo)}/index\.m3u8', f'/{canal}/index.m3u8', url_orig, flags=re.I)
         if r != url_orig:
             return r
-        r = re.sub(rf'/{re.escape(antigo)}(/|$)', f'/{canal}\\1', url_orig, flags=re.I)
-        return r
+        r = re.sub(rf'/{re.escape(antigo)}\.m3u8', f'/{canal}.m3u8', url_orig, flags=re.I)
+        if r != url_orig:
+            return r
     return url_orig
+
 
 def extrair_links_playlist(html):
     padroes = [
@@ -120,7 +131,7 @@ def extrair_links_playlist(html):
         r'(https?://[^\s"\'<>]+\.m3u[^\s"\'<>]*)',
         r'file\s*:\s*["\'](https?://[^"\']+)["\']',
         r'source\s*:\s*["\'](https?://[^"\']+)["\']',
-        r'["\'](//[^\s"\']+\.m3u8[^\s"\']*)["\']'
+        r'["\'](//[^\s"\']+\.m3u8[^\s"\']*)["\']',
     ]
     achados = []
     for p in padroes:
@@ -128,6 +139,7 @@ def extrair_links_playlist(html):
         if m:
             achados.extend(m)
     return list(set(achados))
+
 
 def debug_extrair(url_pagina, log):
     resultado = {
@@ -140,22 +152,27 @@ def debug_extrair(url_pagina, log):
         "html_preview": None,
         "cookies": None,
         "selenium_usado": False,
-        "erro": None
+        "erro": None,
     }
     sess = criar_sessao("chrome120")
     try:
         log.append(f"[HTTP] GET {url_pagina[:120]}")
-        r = sess.get(url_pagina, headers={"User-Agent": USER_AGENT, "Accept": "*/*"}, timeout=10, verify=False)
+        r = sess.get(
+            url_pagina,
+            headers={"User-Agent": USER_AGENT, "Accept": "*/*"},
+            timeout=10,
+            verify=False,
+        )
         resultado["http_status"] = r.status_code
         resultado["content_type"] = r.headers.get("Content-Type", "")
         resultado["content_length"] = len(r.text)
         resultado["html_preview"] = r.text[:3000]
         log.append(f"[HTTP] status={r.status_code} len={len(r.text)}")
-        
+
         if r.status_code == 200 and "#EXTM3U" in r.text:
             log.append("[HTTP] Ja e um m3u8 direto!")
             return (r, url_pagina, {"user_agent": USER_AGENT}, "chrome120"), resultado
-            
+
         if r.status_code == 200:
             links = extrair_links_playlist(r.text)
             resultado["links_encontrados"] = links[:20]
@@ -166,7 +183,12 @@ def debug_extrair(url_pagina, log):
                 if not lk.startswith("http"):
                     continue
                 try:
-                    r2 = sess.get(lk, headers={"User-Agent": USER_AGENT, "Referer": url_pagina}, timeout=10, verify=False)
+                    r2 = sess.get(
+                        lk,
+                        headers={"User-Agent": USER_AGENT, "Referer": url_pagina},
+                        timeout=10,
+                        verify=False,
+                    )
                     if r2.status_code == 200 and ("#EXTM3U" in r2.text or "#EXT-X" in r2.text):
                         resultado["links_validados"].append(lk)
                         log.append(f"[HTTP] VALIDO: {lk[:100]}")
@@ -177,206 +199,211 @@ def debug_extrair(url_pagina, log):
     except Exception as e:
         resultado["erro"] = f"HTTP: {e}"
         log.append(f"[HTTP] Excecao: {e}")
-        
     log.append("[FIM] Nada funcionou")
     return None, resultado
+
 
 def buscar_stream(canal, bruto, log):
     if not bruto:
         return None, None, None, None
     bruto = bruto.strip()
     cfg = None
+
+    # Tenta JSON
     try:
         j = json.loads(bruto)
         cfg = {
-            "url": j.get("url", "").strip(),
-            "user_agent": j.get("user_agent", "").strip() or USER_AGENT,
-            "cookie": j.get("cookie", "").strip(),
-            "origin": j.get("origin", "").strip(),
-            "referer": j.get("referer", "").strip()
+            "url": (j.get("url") or "").strip(),
+            "user_agent": (j.get("user_agent") or "").strip() or USER_AGENT,
+            "cookie": (j.get("cookie") or "").strip(),
+            "origin": (j.get("origin") or "").strip(),
+            "referer": (j.get("referer") or "").strip(),
+            "extra_headers": j.get("extra_headers") or {},
         }
         log.append(f"[INPUT] JSON url={cfg['url'][:100]}")
     except json.JSONDecodeError:
         pass
-        
+
+    # Se não é JSON, trata como URL
     if not cfg and bruto.startswith("http"):
         log.append(f"[INPUT] URL={bruto[:100]}")
         cfg = {"url": bruto, "user_agent": USER_AGENT, "referer": bruto}
-        
-    if not cfg:
+
+    if not cfg or not cfg.get("url"):
+        log.append("[ERRO] Sem URL para tentar")
         return None, None, None, None
 
     alvo = substituir_canal(cfg["url"], canal)
     cfg["url"] = alvo
-    if cfg.get("referer"):
-        cfg["referer"] = substituir_canal(cfg["referer"], canal)
-        
     log.append(f"[CFG] Tentando {alvo[:120]}")
-    
+
+    # 1) Tenta com impersonate variado (curl_cffi)
     for imp in PROXIES:
         try:
             sess = criar_sessao(imp)
             r = sess.get(alvo, headers=obter_headers(cfg), timeout=10, verify=False)
-            log.append(f"[CFG] {imp} status={r.status_code}")
+            log.append(f"[CFG] {imp} status={r.status_code} len={len(r.text)}")
             if r.status_code == 200 and ("#EXTM3U" in r.text or "#EXT-X" in r.text):
+                log.append(f"[OK] {imp} funcionou!")
                 return (r, alvo, cfg, imp)
         except Exception as e:
             log.append(f"[CFG] {imp} erro: {e}")
 
+    # 2) Tenta com requests puro (sem impersonate)
+    try:
+        sess = ImpersonateSession.Session()
+        r = sess.get(alvo, headers=obter_headers(cfg), timeout=10, verify=False)
+        log.append(f"[RAW] status={r.status_code} len={len(r.text)}")
+        if r.status_code == 200 and ("#EXTM3U" in r.text or "#EXT-X" in r.text):
+            log.append("[OK] requests puro funcionou!")
+            return (r, alvo, cfg, None)
+    except Exception as e:
+        log.append(f"[RAW] erro: {e}")
+
+    # 3) Fallback debug
     r, dbg = debug_extrair(alvo, log)
     if r:
         return r
+
     return None, None, None, None
+
 
 HTML_PAGINA = '''
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Player Debug</title>
-  <link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet" />
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, Arial, sans-serif; background: #0a0a0f; color: #fff; padding: 16px; }
-    .box { max-width: 1000px; margin: 0 auto; background: #14141f; border: 1px solid #272738; border-radius: 12px; padding: 16px; margin-bottom: 12px; }
-    h1 { font-size: 1.1em; margin-bottom: 10px; color: #a29bfe; }
-    h2 { font-size: 0.95em; margin: 12px 0 6px; color: #00b894; }
-    input, textarea { width: 100%; background: #0d0d14; border: 1px solid #272738; color: #fff; padding: 10px; border-radius: 6px; margin-bottom: 8px; font-family: monospace; font-size: 0.85em; }
-    textarea { min-height: 160px; resize: vertical; }
-    button { background: #00b894; color: #fff; border: 0; padding: 12px 20px; border-radius: 6px; font-weight: 700; cursor: pointer; font-size: 0.95em; margin-right: 6px; margin-bottom: 6px; }
-    button.debug { background: #e67e22; }
-    button.salvar { background: #3498db; }
-    .video-js { width: 100%; height: 380px; }
-    @media (max-width: 600px) { .video-js { height: 200px; } }
-    .log { font-size: 0.8em; color: #aaa; background: #0d0d14; padding: 10px; border-radius: 6px; font-family: monospace; white-space: pre-wrap; word-break: break-all; max-height: 500px; overflow-y: auto; }
-    .log .ok { color: #00b894; }
-    .log .err { color: #e74c3c; }
-    a { color: #00b894; word-break: break-all; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Player Debug</title>
+<link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet" />
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, Arial, sans-serif; background: #0a0a0f; color: #fff; padding: 16px; }
+.box { max-width: 1000px; margin: 0 auto; background: #14141f; border: 1px solid #272738; border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+h1 { font-size: 1.1em; margin-bottom: 10px; color: #a29bfe; }
+h2 { font-size: 0.95em; margin: 12px 0 6px; color: #00b894; }
+input, textarea { width: 100%; background: #0d0d14; border: 1px solid #272738; color: #fff; padding: 10px; border-radius: 6px; margin-bottom: 8px; font-family: monospace; font-size: 0.85em; }
+textarea { min-height: 220px; resize: vertical; }
+button { background: #00b894; color: #fff; border: 0; padding: 12px 20px; border-radius: 6px; font-weight: 700; cursor: pointer; font-size: 0.95em; margin-right: 6px; margin-bottom: 6px; }
+button.debug { background: #e67e22; }
+button.salvar { background: #3498db; }
+.video-js { width: 100%; height: 380px; }
+@media (max-width: 600px) { .video-js { height: 200px; } }
+.log { font-size: 0.8em; color: #aaa; background: #0d0d14; padding: 10px; border-radius: 6px; font-family: monospace; white-space: pre-wrap; word-break: break-all; max-height: 400px; overflow-y: auto; }
+.log .ok { color: #00b894; }
+.log .err { color: #e74c3c; }
+a { color: #00b894; word-break: break-all; }
+</style>
 </head>
 <body>
-  <div class="box">
-    <h1>PLAYER DEBUG</h1>
-    <video id="player" class="video-js" controls playsinline></video>
-    <input id="canal" placeholder="Nome do canal (ex: tnt)">
-    <button onclick="tocar()">PLAY</button>
-    <button class="salvar" onclick="salvar()">SALVAR CANAL</button>
-    <div class="log" id="log">Pronto</div>
-  </div>
+<div class="box">
+<h1>PLAYER DEBUG</h1>
+<video id="player" class="video-js" controls playsinline></video>
+<input id="canal" placeholder="Nome do canal (ex: tnt, espn, premiere)">
+<button onclick="tocar()">PLAY</button>
+<button class="salvar" onclick="salvar()">SALVAR CANAL</button>
+<div class="log" id="log">Pronto</div>
+</div>
+<div class="box">
+<h1>DADOS BRUTOS (ja preenchido - so trocar o canal)</h1>
+<textarea id="bruto">{{ BRUTO_PADRAO }}</textarea>
+</div>
+<div class="box">
+<h1>CANAIS SALVOS</h1>
+<div id="listaSalvos" class="log">carregando...</div>
+</div>
+<script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
+<script>
+var player = videojs('player');
+var log = document.getElementById('log');
 
-  <div class="box">
-    <h1>DADOS BRUTOS</h1>
-    <textarea id="bruto" placeholder="Cole aqui: JSON, URL m3u8, ou URL de site">''' + DADOS_BRUTOS_PADRAO + '''</textarea>
-  </div>
-
-  <div class="box">
-    <h1>CANAIS SALVOS</h1>
-    <div id="listaSalvos" class="log">carregando...</div>
-  </div>
-
-  <script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
-  <script>
-    var player = videojs('player');
-    var log = document.getElementById('log');
-
-    function atualizarLista() {
-      fetch('/listar').then(r => r.json()).then(d => {
+function atualizarLista() {
+    fetch('/listar').then(r => r.json()).then(d => {
         if (!d.canais || !d.canais.length) {
-          document.getElementById('listaSalvos').innerText = 'Nenhum canal salvo';
-          return;
+            document.getElementById('listaSalvos').innerText = 'Nenhum canal salvo';
+            return;
         }
         var html = '';
         d.canais.forEach(function(c) {
-          var link = location.origin + '/fixo/' + c;
-          html += '<div><b>' + c + '</b> → <a href="' + link + '" target="_blank">' + link + '</a> ';
-          html += '<button onclick="navigator.clipboard.writeText(\'' + link + '\');this.innerText=\'COPIADO\'">COPIAR</button> ';
-          html += '<button onclick="remover(\'' + c + '\')" style="background:#e74c3c">X</button></div>';
+            var link = location.origin + '/fixo/' + c;
+            html += '<div><b>' + c + '</b> -> <a href="' + link + '" target="_blank">' + link + '</a> ';
+            html += '<button onclick="navigator.clipboard.writeText(\\'' + link + '\\');this.innerText=\\'COPIADO\\'">COPIAR</button> ';
+            html += '<button onclick="remover(\\'' + c + '\\')" style="background:#e74c3c">X</button></div>';
         });
         document.getElementById('listaSalvos').innerHTML = html;
-      });
-    }
+    });
+}
 
-    function remover(canal) {
-      if (!confirm('Remover canal ' + canal + '?')) return;
-      fetch('/remover/' + canal).then(() => atualizarLista());
-    }
+function remover(canal) {
+    if (!confirm('Remover canal ' + canal + '?')) return;
+    fetch('/remover/' + canal).then(() => atualizarLista());
+}
 
-    function tocar() {
-      var canal = document.getElementById('canal').value.trim().toLowerCase();
-      var bruto = document.getElementById('bruto').value.trim();
-      if (!canal) {
-        log.innerText = 'Digite o canal';
-        return;
-      }
-      if (!bruto) {
-        log.innerText = 'Cole os dados brutos';
-        return;
-      }
-      log.innerText = 'Testando...';
-      fetch('/testar', {
+function tocar() {
+    var canal = document.getElementById('canal').value.trim().toLowerCase();
+    var bruto = document.getElementById('bruto').value.trim();
+    if (!canal) { log.innerText = 'Digite o canal'; return; }
+    if (!bruto) { log.innerText = 'Cole os dados brutos'; return; }
+    log.innerText = 'Testando...';
+    fetch('/testar', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify({canal: canal, bruto: bruto})
-      }).then(r => r.json()).then(d => {
+    }).then(r => r.json()).then(d => {
         if (d.ok) {
-          var src = '/play?canal=' + encodeURIComponent(canal) + '&bruto=' + encodeURIComponent(bruto);
-          player.src({src: src, type: 'application/x-mpegURL'});
-          player.play();
-          log.innerText = 'Tocando: ' + canal;
-          setTimeout(function() {
-            if (confirm('Funcionou! Deseja SALVAR o canal "' + canal + '"?')) {
-              fetch('/salvar', {
-                method: 'POST',
-                headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({canal: canal, bruto: bruto})
-              }).then(r => r.json()).then(s => {
-                if (s.ok) {
-                  log.innerHTML = '<span class="ok">Canal salvo!<br>Link fixo: <a href="' + s.link + '" target="_blank">' + s.link + '</a></span>';
-                  atualizarLista();
+            var src = '/play?canal=' + encodeURIComponent(canal) + '&bruto=' + encodeURIComponent(bruto);
+            player.src({src: src, type: 'application/x-mpegURL'});
+            player.play();
+            log.innerText = 'Tocando: ' + canal;
+            setTimeout(function() {
+                if (confirm('Funcionou! Deseja SALVAR o canal "' + canal + '"?')) {
+                    fetch('/salvar', {
+                        method: 'POST',
+                        headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify({canal: canal, bruto: bruto})
+                    }).then(r => r.json()).then(s => {
+                        if (s.ok) {
+                            log.innerHTML = '<span class="ok">Canal salvo!<br>Link fixo: <a href="' + s.link + '" target="_blank">' + s.link + '</a></span>';
+                            atualizarLista();
+                        } else {
+                            log.innerText = 'Erro ao salvar: ' + (s.msg || '');
+                        }
+                    });
                 } else {
-                  log.innerText = 'Erro ao salvar: ' + (s.msg || '');
+                    log.innerText = 'Tocando (nao salvo): ' + canal;
                 }
-              });
-            } else {
-              log.innerText = 'Tocando (nao salvo): ' + canal;
-            }
-          }, 2000);
+            }, 2500);
         } else {
-          log.innerText = d.msg || 'Nao foi possivel';
+            log.innerText = d.msg || 'Nao foi possivel';
         }
-      }).catch(e => {
-        log.innerText = 'Erro: ' + e;
-      });
-    }
+    }).catch(e => { log.innerText = 'Erro: ' + e; });
+}
 
-    function salvar() {
-      var canal = document.getElementById('canal').value.trim().toLowerCase();
-      var bruto = document.getElementById('bruto').value.trim();
-      if (!canal || !bruto) {
-        log.innerText = 'Preencha canal e bruto';
-        return;
-      }
-      log.innerText = 'Salvando...';
-      fetch('/salvar', {
+function salvar() {
+    var canal = document.getElementById('canal').value.trim().toLowerCase();
+    var bruto = document.getElementById('bruto').value.trim();
+    if (!canal || !bruto) { log.innerText = 'Preencha canal e bruto'; return; }
+    log.innerText = 'Salvando...';
+    fetch('/salvar', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify({canal: canal, bruto: bruto})
-      }).then(r => r.json()).then(d => {
+    }).then(r => r.json()).then(d => {
         if (d.ok) {
-          log.innerHTML = '<span class="ok">Salvo! Link: <a href="' + d.link + '" target="_blank">' + d.link + '</a></span>';
-          atualizarLista();
+            log.innerHTML = '<span class="ok">Salvo! Link: <a href="' + d.link + '" target="_blank">' + d.link + '</a></span>';
+            atualizarLista();
         } else {
-          log.innerText = d.msg || 'Erro';
+            log.innerText = d.msg || 'Erro';
         }
-      });
-    }
+    });
+}
 
-    atualizarLista();
-  </script>
+atualizarLista();
+</script>
 </body>
 </html>
 '''
+
 
 @app.after_request
 def cors(r):
@@ -384,9 +411,11 @@ def cors(r):
     r.headers['Access-Control-Allow-Headers'] = '*'
     return r
 
+
 @app.route('/')
 def index():
-    return render_template_string(HTML_PAGINA)
+    return render_template_string(HTML_PAGINA, BRUTO_PADRAO=BRUTO_PADRAO)
+
 
 @app.route('/testar', methods=['POST'])
 def testar():
@@ -399,7 +428,8 @@ def testar():
     r = buscar_stream(canal, bruto, log)
     if r[0]:
         return {"ok": True}
-    return {"ok": False, "msg": "Nao consegui. Use DEBUG."}
+    return {"ok": False, "msg": "Nao consegui. Detalhes: " + " | ".join(log[-5:])}
+
 
 @app.route('/salvar', methods=['POST'])
 def salvar_canal():
@@ -413,6 +443,7 @@ def salvar_canal():
     link = f"{url_base()}/fixo/{canal}"
     return {"ok": True, "link": link, "canal": canal}
 
+
 @app.route('/remover/<canal>')
 def remover_canal(canal):
     canal = canal.lower()
@@ -422,9 +453,11 @@ def remover_canal(canal):
         return {"ok": True}
     return {"ok": False}
 
+
 @app.route('/listar')
 def listar_salvos():
     return {"canais": list(CANAIS_SALVOS.keys())}
+
 
 @app.route('/fixo/<canal>')
 def link_fixo(canal):
@@ -437,7 +470,8 @@ def link_fixo(canal):
     if r[0]:
         resp, url_a, cfg_usado, tunel = r
         return gerar_playlist(resp, url_a, cfg_usado, tunel)
-    return f"Canal {canal} falhou", 500
+    return f"Canal {canal} falhou: " + " | ".join(log[-5:]), 500
+
 
 @app.route('/play')
 def play():
@@ -450,7 +484,8 @@ def play():
     if r[0]:
         resp, url_a, cfg_usado, tunel = r
         return gerar_playlist(resp, url_a, cfg_usado, tunel)
-    return f"Canal {canal} nao encontrado", 404
+    return f"Canal {canal} nao encontrado: " + " | ".join(log[-5:]), 404
+
 
 def gerar_playlist(resp, url_a, cfg, tunel):
     host = url_base()
@@ -458,64 +493,101 @@ def gerar_playlist(resp, url_a, cfg, tunel):
     base = getattr(resp, 'url', url_a)
     ref = quote(cfg.get("referer", ""))
     ck = quote(cfg.get("cookie", ""))
-    
+    ua = quote(cfg.get("user_agent", "") or "")
+    og = quote(cfg.get("origin", "") or "")
+    eh = quote(json.dumps(cfg.get("extra_headers") or {}))
     for l in resp.text.splitlines():
         ls = l.strip()
         if ls and not ls.startswith('#'):
             abs_url = urljoin(base, ls)
             ep = "/proxy_m3u8" if '.m3u8' in ls else "/ts_proxy"
-            linhas.append(f"{host}{ep}?url={quote(abs_url)}&tunel={tunel}&ref={ref}&ck={ck}")
+            linhas.append(f"{host}{ep}?url={quote(abs_url)}&tunel={tunel or ''}&ref={ref}&ck={ck}&ua={ua}&og={og}&eh={eh}")
         else:
             linhas.append(ls)
-            
-    return Response("\n".join(linhas), status=200, headers={'Content-Type': 'application/vnd.apple.mpegurl'})
+    return Response(
+        "\n".join(linhas),
+        status=200,
+        headers={'Content-Type': 'application/vnd.apple.mpegurl', 'Cache-Control': 'no-cache'}
+    )
+
+
+def montar_headers_proxy(tunel, ref_custom, ck_custom, ua_custom, og_custom, eh_custom):
+    cfg = {
+        "user_agent": ua_custom or USER_AGENT,
+        "referer": ref_custom,
+        "cookie": ck_custom,
+        "origin": og_custom,
+        "extra_headers": {},
+    }
+    if eh_custom:
+        try:
+            cfg["extra_headers"] = json.loads(eh_custom) or {}
+        except Exception:
+            cfg["extra_headers"] = {}
+    return obter_headers(cfg)
+
 
 @app.route('/proxy_m3u8')
 def proxy_m3u8():
     target = unquote(request.args.get('url', ''))
-    tunel = request.args.get('tunel', 'chrome120')
+    tunel = request.args.get('tunel', 'chrome120') or None
     ref_custom = unquote(request.args.get('ref', ''))
     ck_custom = unquote(request.args.get('ck', ''))
-    
+    ua_custom = unquote(request.args.get('ua', ''))
+    og_custom = unquote(request.args.get('og', ''))
+    eh_custom = unquote(request.args.get('eh', ''))
+
     if not target:
         return "URL ausente", 400
-        
-    sess = criar_sessao(tunel)
-    h = {"User-Agent": USER_AGENT, "Accept": "*/*"}
-    if ref_custom:
-        h["Referer"] = ref_custom
-    if ck_custom:
-        h["Cookie"] = ck_custom
-        
+
+    sess = criar_sessao(tunel) if tunel else ImpersonateSession.Session()
+    h = montar_headers_proxy(tunel, ref_custom, ck_custom, ua_custom, og_custom, eh_custom)
+
     try:
-        r = sess.get(target, headers=h, timeout=8, verify=False)
+        r = sess.get(target, headers=h, timeout=10, verify=False)
+        if r.status_code != 200:
+            return f"upstream {r.status_code}", r.status_code
         host = url_base()
         linhas = []
         base = getattr(r, 'url', target)
+        ref_e = quote(ref_custom or "")
+        ck_e = quote(ck_custom or "")
+        ua_e = quote(ua_custom or "")
+        og_e = quote(og_custom or "")
+        eh_e = quote(eh_custom or "")
         for l in r.text.splitlines():
             ls = l.strip()
             if ls and not ls.startswith('#'):
-                abs_url = urljoin(base, ls)
+                                abs_url = urljoin(base, ls)
                 ep = "/proxy_m3u8" if '.m3u8' in ls else "/ts_proxy"
-                linhas.append(f"{host}{ep}?url={quote(abs_url)}&tunel={tunel}&ref={quote(ref_custom)}&ck={quote(ck_custom)}")
+                linhas.append(f"{host}{ep}?url={quote(abs_url)}&tunel={tunel or ''}&ref={ref_e}&ck={ck_e}&ua={ua_e}&og={og_e}&eh={eh_e}")
             else:
                 linhas.append(ls)
-        return Response("\n".join(linhas), status=200, headers={'Content-Type': 'application/vnd.apple.mpegurl'})
+        return Response(
+            "\n".join(linhas),
+            status=200,
+            headers={'Content-Type': 'application/vnd.apple.mpegurl', 'Cache-Control': 'no-cache'}
+        )
     except Exception as e:
         return f"Erro: {e}", 500
+
 
 @app.route('/ts_proxy')
 def ts_proxy():
     target = unquote(request.args.get('url', ''))
-    tunel = request.args.get('tunel', 'chrome120')
+    tunel = request.args.get('tunel', 'chrome120') or None
     ref_custom = unquote(request.args.get('ref', ''))
     ck_custom = unquote(request.args.get('ck', ''))
-    
+    ua_custom = unquote(request.args.get('ua', ''))
+    og_custom = unquote(request.args.get('og', ''))
+    eh_custom = unquote(request.args.get('eh', ''))
+
     if not target:
         return "URL ausente", 400
 
+    chave_cache = f"{target}|{tunel}|{ref_custom}|{ck_custom}"
     with TS_CACHE_LOCK:
-        item = TS_CACHE.get(target)
+        item = TS_CACHE.get(chave_cache)
         if item:
             dados, t = item
             if time.time() - t < TS_CACHE_TEMPO:
@@ -523,34 +595,29 @@ def ts_proxy():
                     'Content-Type': 'video/mp2t',
                     'Content-Length': str(len(dados)),
                     'Cache-Control': 'public, max-age=60',
-                    'Accept-Ranges': 'bytes'
+                    'Accept-Ranges': 'bytes',
                 })
 
-    sess = criar_sessao(tunel)
-    h = {"User-Agent": USER_AGENT, "Accept": "*/*"}
-    if ref_custom:
-        h["Referer"] = ref_custom
-    if ck_custom:
-        h["Cookie"] = ck_custom
+    sess = criar_sessao(tunel) if tunel else ImpersonateSession.Session()
+    h = montar_headers_proxy(tunel, ref_custom, ck_custom, ua_custom, og_custom, eh_custom)
 
     try:
         r = sess.get(target, headers=h, timeout=15, verify=False)
         conteudo = r.content
-        
         with TS_CACHE_LOCK:
             if len(TS_CACHE) >= TS_CACHE_MAX:
                 mais_antigo = min(TS_CACHE.items(), key=lambda kv: kv[1][1])
                 del TS_CACHE[mais_antigo[0]]
-            TS_CACHE[target] = (conteudo, time.time())
-            
+            TS_CACHE[chave_cache] = (conteudo, time.time())
         return Response(conteudo, status=r.status_code, headers={
             'Content-Type': 'video/mp2t',
             'Content-Length': str(len(conteudo)),
             'Cache-Control': 'public, max-age=60',
-            'Accept-Ranges': 'bytes'
+            'Accept-Ranges': 'bytes',
         })
     except Exception as e:
         return f"Erro TS: {e}", 500
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=PORTA, threaded=True, debug=False, use_reloader=False)
