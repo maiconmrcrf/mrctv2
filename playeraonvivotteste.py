@@ -19,18 +19,28 @@ USER_AGENT = "Mozilla/5.0 (Android 15; Mobile; rv:155.0) Gecko/155.0 Firefox/155
 COOKIE_FIXO = "bitmovin_analytics_uuid=a07b3c21-c8bc-4692-8761-53ffa4df341f"
 ORIGIN_FIXO = "https://bolodechocolate.fit"
 
-# ====== CACHE DE STREAM (guarda o m3u8 resolvido por 10s) ======
-STREAM_CACHE = {}       # canal -> (resp_texto, url_base, ts)
-STREAM_LOCK = threading.Lock()
-STREAM_TEMPO = 10       # 10s (m3u8 muda toda hora, não adianta guardar muito)
+# ====== CANAIS FIXOS NA INTERFACE ======
+CANAIS_FIXOS = [
+    "espn",
+    "premiereclubes",
+    "tnt",
+    "telecinepipoca",
+    "telecinefun",
+    "telecinepremium",
+    "space",
+]
 
-# ====== CACHE DE SEGMENTOS (.ts) ======
+# ====== CACHE DE STREAM ======
+STREAM_CACHE = {}
+STREAM_LOCK = threading.Lock()
+STREAM_TEMPO = 10
+
+# ====== CACHE DE SEGMENTOS ======
 TS_CACHE = {}
 TS_CACHE_LOCK = threading.Lock()
 TS_CACHE_MAX = 800
-TS_CACHE_TEMPO = 300    # 5 min
+TS_CACHE_TEMPO = 300
 
-# ====== SESSÃO ======
 def criar_sessao():
     if USE_CURL:
         try:
@@ -55,10 +65,8 @@ def obter_headers(canal):
         "Connection": "keep-alive",
     }
 
-# ====== BUSCA M3U8 COM CACHE CURTO ======
 def buscar_m3u8(canal, forcar=False):
     canal_l = canal.strip().lower()
-
     if not forcar:
         with STREAM_LOCK:
             item = STREAM_CACHE.get(canal_l)
@@ -81,9 +89,7 @@ def buscar_m3u8(canal, forcar=False):
         pass
     return None, None
 
-# ====== BUSCA SEGMENTO COM RETRY ======
 def buscar_segmento(url_seg, canal):
-    # 1) cache
     with TS_CACHE_LOCK:
         item = TS_CACHE.get(url_seg)
         if item:
@@ -91,7 +97,6 @@ def buscar_segmento(url_seg, canal):
             if time.time() - t < TS_CACHE_TEMPO:
                 return dados, 200
 
-    # 2) baixa com 3 tentativas
     h = obter_headers(canal)
     for tent in range(3):
         sess = criar_sessao()
@@ -108,10 +113,8 @@ def buscar_segmento(url_seg, canal):
                 return None, r.status_code
         except Exception:
             time.sleep(0.4)
-
     return None, 502
 
-# ====== HTML ======
 HTML = '''
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -130,21 +133,14 @@ HTML = '''
     color: #fff;
     min-height: 100vh;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
     padding: 20px;
     position: relative;
     overflow-x: hidden;
   }
 
-  /* ===== FUNDO AZUL NEON ===== */
-  .bg-glow {
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
-    overflow: hidden;
-  }
+  .bg-glow { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
   .glow {
     position: absolute;
     border-radius: 50%;
@@ -169,10 +165,7 @@ HTML = '''
     50% { transform: scale(1.15); opacity: 0.65; }
   }
   .grid-bg {
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
     background-image:
       linear-gradient(rgba(0, 168, 255, 0.06) 1px, transparent 1px),
       linear-gradient(90deg, rgba(0, 168, 255, 0.06) 1px, transparent 1px);
@@ -181,41 +174,31 @@ HTML = '''
     -webkit-mask-image: radial-gradient(ellipse at center, #000 10%, transparent 70%);
   }
 
-  .app {
-    width: 100%;
-    max-width: 960px;
-    position: relative;
-    z-index: 1;
-  }
+  .app { width: 100%; max-width: 960px; position: relative; z-index: 1; }
 
-  /* ===== HEADER ===== */
-  .header {
-    text-align: center;
-    margin-bottom: 30px;
-  }
+  .header { text-align: center; margin-bottom: 26px; }
   .header h1 {
-    font-size: clamp(2.4em, 9vw, 4em);
+    font-size: clamp(2.2em, 8vw, 3.6em);
     font-weight: 900;
     letter-spacing: 4px;
     color: #fff;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
     text-shadow:
       0 0 20px rgba(0, 168, 255, 0.7),
       0 0 60px rgba(0, 168, 255, 0.4);
   }
   .header .sub {
     color: #00a8ff;
-    font-size: 0.72em;
+    font-size: 0.7em;
     letter-spacing: 6px;
     font-weight: 600;
     text-transform: uppercase;
     text-shadow: 0 0 20px rgba(0, 168, 255, 0.5);
   }
   .header .divider {
-    width: 80px;
-    height: 2px;
+    width: 80px; height: 2px;
     background: linear-gradient(90deg, transparent, #00a8ff, transparent);
-    margin: 18px auto 0;
+    margin: 16px auto 0;
     border-radius: 2px;
     box-shadow: 0 0 20px rgba(0, 168, 255, 0.8);
   }
@@ -226,20 +209,63 @@ HTML = '''
     border: 1px solid rgba(0, 168, 255, 0.25);
     border-radius: 18px;
     padding: 14px;
-    margin-bottom: 20px;
+    margin-bottom: 16px;
     box-shadow:
       0 25px 70px rgba(0, 0, 0, 0.9),
       0 0 60px rgba(0, 168, 255, 0.15),
       inset 0 1px 0 rgba(0, 168, 255, 0.1);
   }
   .video-js {
-    width: 100%;
-    height: 480px;
-    border-radius: 10px;
-    overflow: hidden;
-    background: #000;
+    width: 100%; height: 420px;
+    border-radius: 10px; overflow: hidden; background: #000;
   }
-  @media (max-width: 640px) { .video-js { height: 240px; } }
+  @media (max-width: 640px) { .video-js { height: 220px; } }
+
+  /* ===== CANAIS FIXOS ===== */
+  .canais-fixos {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .canal-btn {
+    background: rgba(8, 12, 24, 0.85);
+    border: 1px solid rgba(0, 168, 255, 0.3);
+    color: #00d4ff;
+    padding: 14px 8px;
+    border-radius: 10px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 700;
+    font-size: 0.82em;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+    text-shadow: 0 0 8px rgba(0, 212, 255, 0.5);
+    box-shadow: inset 0 0 20px rgba(0, 168, 255, 0.05);
+  }
+  .canal-btn:hover {
+    background: rgba(0, 168, 255, 0.12);
+    border-color: #00a8ff;
+    color: #fff;
+    text-shadow: 0 0 14px rgba(0, 212, 255, 0.9);
+    box-shadow:
+      0 0 25px rgba(0, 168, 255, 0.35),
+      inset 0 0 20px rgba(0, 168, 255, 0.15);
+    transform: translateY(-2px);
+  }
+  .canal-btn:active {
+    transform: translateY(0);
+  }
+  .canal-btn.ativo {
+    background: linear-gradient(135deg, rgba(0, 168, 255, 0.25), rgba(0, 102, 255, 0.25));
+    border-color: #00d4ff;
+    color: #fff;
+    box-shadow:
+      0 0 30px rgba(0, 212, 255, 0.5),
+      inset 0 0 25px rgba(0, 168, 255, 0.25);
+  }
 
   /* ===== CONTROLES ===== */
   .controls {
@@ -304,13 +330,12 @@ HTML = '''
     box-shadow: none;
   }
 
-  /* ===== FOOTER ===== */
   .footer {
     text-align: center;
     color: #2a3555;
     font-size: 0.7em;
     letter-spacing: 2px;
-    margin-top: 24px;
+    margin-top: 22px;
     font-weight: 500;
   }
 
@@ -318,12 +343,9 @@ HTML = '''
   .video-js .vjs-big-play-button {
     background: linear-gradient(135deg, rgba(0, 168, 255, 0.95), rgba(0, 102, 255, 0.95));
     border: none;
-    width: 80px;
-    height: 80px;
-    line-height: 80px;
+    width: 80px; height: 80px; line-height: 80px;
     border-radius: 50%;
-    top: 50%;
-    left: 50%;
+    top: 50%; left: 50%;
     transform: translate(-50%, -50%);
     transition: transform 0.25s ease;
     box-shadow: 0 10px 40px rgba(0, 168, 255, 0.6);
@@ -336,18 +358,10 @@ HTML = '''
     background: linear-gradient(to top, rgba(3, 6, 15, 0.95), transparent);
     height: 46px;
   }
-  .video-js .vjs-play-progress {
-    background: linear-gradient(90deg, #00a8ff, #0066ff);
-  }
-  .video-js .vjs-load-progress {
-    background: rgba(0, 168, 255, 0.25);
-  }
-  .video-js .vjs-slider {
-    background: rgba(0, 168, 255, 0.15);
-  }
-  .video-js .vjs-volume-level {
-    background: #00a8ff;
-  }
+  .video-js .vjs-play-progress { background: linear-gradient(90deg, #00a8ff, #0066ff); }
+  .video-js .vjs-load-progress { background: rgba(0, 168, 255, 0.25); }
+  .video-js .vjs-slider { background: rgba(0, 168, 255, 0.15); }
+  .video-js .vjs-volume-level { background: #00a8ff; }
 </style>
 </head>
 <body>
@@ -368,8 +382,14 @@ HTML = '''
       <video id="player" class="video-js" controls playsinline preload="none"></video>
     </div>
 
+    <div class="canais-fixos">
+      {% for c in canais %}
+      <div class="canal-btn" data-canal="{{ c }}" onclick="tocarFixo('{{ c }}', this)">{{ c }}</div>
+      {% endfor %}
+    </div>
+
     <div class="controls">
-      <input id="canal" type="text" placeholder="Digite o nome do canal" autocomplete="off" spellcheck="false">
+      <input id="canal" type="text" placeholder="Digite outro canal" autocomplete="off" spellcheck="false">
       <button id="btnPlay" onclick="tocar()">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
         PLAY
@@ -390,7 +410,6 @@ var player = videojs('player', {
 var btn = document.getElementById('btnPlay');
 var input = document.getElementById('canal');
 
-// Reconexão automática: se o player travar, tenta de novo
 player.on('error', function() {
   setTimeout(function() {
     if (player.src() && player.src().indexOf('/play/') !== -1) {
@@ -402,11 +421,26 @@ player.on('error', function() {
   }, 1500);
 });
 
+function marcarAtivo(el) {
+  document.querySelectorAll('.canal-btn').forEach(function(b){ b.classList.remove('ativo'); });
+  if (el) el.classList.add('ativo');
+}
+
+function tocarFixo(canal, el) {
+  marcarAtivo(el);
+  input.value = canal;
+  disparar(canal);
+}
+
 function tocar() {
   var canal = input.value.trim().toLowerCase();
   if (!canal) { input.focus(); return; }
-  btn.disabled = true;
+  marcarAtivo(null);
+  disparar(canal);
+}
 
+function disparar(canal) {
+  btn.disabled = true;
   var t = setTimeout(function(){ btn.disabled = false; }, 10000);
 
   fetch('/testar/' + encodeURIComponent(canal), { mode: 'cors' })
@@ -443,7 +477,7 @@ def cors(r):
 
 @app.route('/')
 def index():
-    return render_template_string(HTML)
+    return render_template_string(HTML, canais=CANAIS_FIXOS)
 
 @app.route('/testar/<canal>')
 def testar(canal):
