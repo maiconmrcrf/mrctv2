@@ -15,50 +15,26 @@ except ImportError:
 app = Flask(__name__)
 PORTA = int(os.environ.get("PORT", 10000))
 
-# ====== DETECTA MODO ======
-# Se for Termux (existe /data/data/com.termux) → modo vídeo
-# Senão → modo página (Render)
+# ============================================
+# CONFIGURAÇÃO — EDITE AQUI QUANDO MUDAR
+# ============================================
+LINK_SERVEO = "https://tvmrc1.serveousercontent.com"
+LINK_CLOUDFLARE = "https://gis-momentum-mean-mine.trycloudflare.com"
+# ============================================
+
+# Detecta modo automaticamente
 MODO = "video" if os.path.exists("/data/data/com.termux") else "page"
 
-# ====== CONFIG ======
 USER_AGENT = "Mozilla/5.0 (Android 15; Mobile; rv:155.0) Gecko/155.0 Firefox/155.0"
 COOKIE_FIXO = "bitmovin_analytics_uuid=a07b3c21-c8bc-4692-8761-53ffa4df341f"
 ORIGIN_FIXO = "https://bolodechocolate.fit"
-
-LINKS_PADRAO = {
-    "serveo": "https://tvmrc1.serveousercontent.com",
-    "cloudflare": ""
-}
-
-ARQ_CONFIG = "config_links.json"
 
 TS_CACHE = {}
 TS_CACHE_LOCK = threading.Lock()
 TS_CACHE_MAX = 300
 TS_CACHE_TEMPO = 120
 
-# ====== CONFIG DE LINKS (só no Render) ======
-def carregar_links():
-    if not os.path.exists(ARQ_CONFIG):
-        return dict(LINKS_PADRAO)
-    try:
-        with open(ARQ_CONFIG, "r", encoding="utf-8") as f:
-            d = json.load(f)
-        d.setdefault("serveo", LINKS_PADRAO["serveo"])
-        d.setdefault("cloudflare", "")
-        return d
-    except Exception:
-        return dict(LINKS_PADRAO)
-
-def salvar_links(d):
-    try:
-        with open(ARQ_CONFIG, "w", encoding="utf-8") as f:
-            json.dump(d, f, indent=2, ensure_ascii=False)
-        return True
-    except Exception:
-        return False
-
-# ====== STREAM (só no Termux) ======
+# ====== STREAM (Termux) ======
 def criar_sessao():
     if USE_CURL:
         try:
@@ -158,7 +134,6 @@ HTML = '''
     border: 1px solid rgba(108, 92, 231, 0.25);
     border-radius: 20px; padding: 18px;
     box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6), 0 0 80px rgba(108, 92, 231, 0.1);
-    margin-bottom: 18px;
   }
   .video-js { width: 100%; height: 420px; border-radius: 14px; overflow: hidden; background: #000; }
   @media (max-width: 640px) { .video-js { height: 220px; } }
@@ -193,44 +168,7 @@ HTML = '''
   }
   .status.ok { color: #00b894; }
   .status.err { color: #e74c3c; }
-  .footer {
-    text-align: center; color: #444; font-size: 0.72em;
-    letter-spacing: 1px; margin-top: 18px;
-  }
-  .admin-toggle {
-    position: fixed; bottom: 14px; right: 14px;
-    background: rgba(108, 92, 231, 0.15);
-    border: 1px solid rgba(108, 92, 231, 0.3);
-    color: #a29bfe; padding: 8px 14px; border-radius: 10px;
-    font-size: 0.8em; cursor: pointer; font-family: 'Inter', sans-serif;
-    font-weight: 600; backdrop-filter: blur(10px);
-  }
-  .admin-toggle:hover { background: rgba(108, 92, 231, 0.3); }
-  .admin-modal {
-    display: none; position: fixed; inset: 0;
-    background: rgba(0, 0, 0, 0.8); z-index: 9999;
-    align-items: center; justify-content: center; padding: 20px;
-  }
-  .admin-modal.open { display: flex; }
-  .admin-box {
-    background: #14141f; border: 1px solid rgba(108, 92, 231, 0.3);
-    border-radius: 16px; padding: 24px; width: 100%; max-width: 500px;
-  }
-  .admin-box h2 { font-size: 1.1em; margin-bottom: 16px; color: #a29bfe; }
-  .admin-box label { display: block; font-size: 0.8em; color: #888; margin-bottom: 6px; margin-top: 12px; }
-  .admin-box input {
-    width: 100%; background: #0d0d14; border: 1.5px solid rgba(108, 92, 231, 0.3);
-    color: #fff; padding: 12px 14px; border-radius: 10px;
-    font-family: monospace; font-size: 0.85em; outline: none;
-  }
-  .admin-box input:focus { border-color: #6c5ce7; }
-  .admin-box .row { display: flex; gap: 8px; margin-top: 18px; }
-  .admin-box button {
-    flex: 1; padding: 12px; border-radius: 10px; border: none;
-    font-weight: 700; cursor: pointer; font-family: 'Inter', sans-serif;
-  }
-  .admin-box .save { background: #00b894; color: #fff; }
-  .admin-box .close { background: #333; color: #fff; }
+  .footer { text-align: center; color: #444; font-size: 0.72em; letter-spacing: 1px; margin-top: 18px; }
 </style>
 </head>
 <body>
@@ -255,22 +193,6 @@ HTML = '''
     <div class="footer">© MARCOS TV</div>
   </div>
 
-  <div class="admin-toggle" onclick="abrirAdmin()">⚙</div>
-
-  <div class="admin-modal" id="adminModal">
-    <div class="admin-box">
-      <h2>Configurar Links</h2>
-      <label>Link Serveo (fixo)</label>
-      <input id="linkServeo" type="text" value="">
-      <label>Link Cloudflare (atualize quando mudar)</label>
-      <input id="linkCloudflare" type="text" placeholder="https://xxx.trycloudflare.com">
-      <div class="row">
-        <button class="save" onclick="salvarAdmin()">SALVAR</button>
-        <button class="close" onclick="fecharAdmin()">FECHAR</button>
-      </div>
-    </div>
-  </div>
-
 <script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
 <script>
 var player = videojs('player', { controls: true, autoplay: false, preload: 'auto' });
@@ -278,39 +200,12 @@ var statusEl = document.getElementById('status');
 var btn = document.getElementById('btnPlay');
 var input = document.getElementById('canal');
 var MODO = "{{ modo }}";
+var LINK_SERVEO = "{{ link_serveo }}";
+var LINK_CLOUDFLARE = "{{ link_cloudflare }}";
 
 function setStatus(msg, tipo) {
   statusEl.className = 'status' + (tipo ? ' ' + tipo : '');
   statusEl.innerText = msg || '';
-}
-
-function abrirAdmin() {
-  if (MODO === 'video') {
-    alert('Voce esta rodando no Termux. Edite os links no Render.');
-    return;
-  }
-  fetch('/links').then(r => r.json()).then(d => {
-    document.getElementById('linkServeo').value = d.serveo || '';
-    document.getElementById('linkCloudflare').value = d.cloudflare || '';
-    document.getElementById('adminModal').classList.add('open');
-  });
-}
-
-function fecharAdmin() {
-  document.getElementById('adminModal').classList.remove('open');
-}
-
-function salvarAdmin() {
-  var serveo = document.getElementById('linkServeo').value.trim();
-  var cf = document.getElementById('linkCloudflare').value.trim();
-  fetch('/links', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ serveo: serveo, cloudflare: cf })
-  }).then(r => r.json()).then(d => {
-    if (d.ok) { alert('Salvo!'); fecharAdmin(); }
-    else { alert('Erro: ' + (d.msg || '')); }
-  });
 }
 
 function fetchComTimeout(url, ms) {
@@ -333,25 +228,18 @@ function tocar() {
   var candidatos = [];
 
   if (MODO === 'page') {
-    // Render: busca links configurados
-    fetch('/links').then(r => r.json()).then(links => {
-      if (links.serveo) candidatos.push(links.serveo.replace(/\\/$/, ''));
-      if (links.cloudflare) candidatos.push(links.cloudflare.replace(/\\/$/, ''));
-      dispararTestes(canal, candidatos);
-    }).catch(e => { btn.disabled = false; setStatus('Erro: ' + e.message, 'err'); });
+    if (LINK_SERVEO) candidatos.push(LINK_SERVEO.replace(/\\/$/, ''));
+    if (LINK_CLOUDFLARE) candidatos.push(LINK_CLOUDFLARE.replace(/\\/$/, ''));
   } else {
-    // Termux: usa local direto
     candidatos.push('');
-    dispararTestes(canal, candidatos);
   }
-}
 
-function dispararTestes(canal, candidatos) {
   if (!candidatos.length) {
     btn.disabled = false;
     setStatus('Nenhum link configurado', 'err');
     return;
   }
+
   var respostas = 0;
   var ganhou = false;
 
@@ -391,7 +279,7 @@ input.addEventListener('keydown', function(e) { if (e.key === 'Enter') tocar(); 
 </html>
 '''
 
-# ====== ROTAS COMUNS ======
+# ====== ROTAS ======
 @app.after_request
 def cors(r):
     r.headers['Access-Control-Allow-Origin'] = '*'
@@ -401,27 +289,13 @@ def cors(r):
 
 @app.route('/')
 def index():
-    return render_template_string(HTML, modo=MODO)
+    return render_template_string(
+        HTML,
+        modo=MODO,
+        link_serveo=LINK_SERVEO,
+        link_cloudflare=LINK_CLOUDFLARE
+    )
 
-# ====== ROTAS MODO PÁGINA (Render) ======
-@app.route('/links', methods=['GET'])
-def get_links():
-    return jsonify(carregar_links())
-
-@app.route('/links', methods=['POST'])
-def post_links():
-    d = request.get_json() or {}
-    links = {
-        "serveo": (d.get('serveo') or '').strip().rstrip('/'),
-        "cloudflare": (d.get('cloudflare') or '').strip().rstrip('/')
-    }
-    if not links['serveo']:
-        links['serveo'] = LINKS_PADRAO['serveo']
-    if salvar_links(links):
-        return jsonify({"ok": True})
-    return jsonify({"ok": False, "msg": "Erro ao salvar"}), 500
-
-# ====== ROTAS MODO VÍDEO (Termux) ======
 @app.route('/testar/<canal>')
 def testar(canal):
     canal = canal.strip().lower()
@@ -508,16 +382,18 @@ def ts_proxy():
         'Accept-Ranges': 'bytes'
     })
 
-# ====== BOOT ======
 if __name__ == '__main__':
     print("=" * 55)
     print(f"  MARCOS TV - MODO: {MODO.upper()}")
     print("=" * 55)
     if MODO == "video":
         print(f"  Rodando no Termux (porta {PORTA})")
-        print(f"  Ative o tunel em outro terminal:")
+        print(f"  Em outro terminal rode:")
         print(f"    ssh -R tvmrc1:80:127.0.0.1:{PORTA} serveo.net")
+        print(f"    cloudflared tunnel --url http://localhost:{PORTA}")
     else:
         print(f"  Rodando no Render (pagina HTML)")
+        print(f"  Serveo:      {LINK_SERVEO}")
+        print(f"  Cloudflare:  {LINK_CLOUDFLARE}")
     print("=" * 55)
     app.run(host='0.0.0.0', port=PORTA, threaded=True, debug=False, use_reloader=False)
