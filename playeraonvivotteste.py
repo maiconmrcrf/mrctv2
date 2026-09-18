@@ -28,8 +28,8 @@ ORIGIN_FIXO = "https://bolodechocolate.fit"
 
 TS_CACHE = {}
 TS_CACHE_LOCK = threading.Lock()
-TS_CACHE_MAX = 300
-TS_CACHE_TEMPO = 120
+TS_CACHE_MAX = 500
+TS_CACHE_TEMPO = 90
 
 # ====== CANAIS FIXOS NA INTERFACE ======
 CANAIS_FIXOS = [
@@ -83,7 +83,7 @@ def buscar_m3u8(canal):
     return None, None
 
 def buscar_segmento(url_segmento, canal):
-    """Baixa um .ts do canal. Tenta cache primeiro."""
+    """Baixa um .ts do canal. Timeout curto + 2 tentativas."""
     with TS_CACHE_LOCK:
         item = TS_CACHE.get(url_segmento)
         if item:
@@ -92,19 +92,22 @@ def buscar_segmento(url_segmento, canal):
                 return dados, 200
 
     h = obter_headers(canal)
-    sess = criar_sessao("firefox133")
-    try:
-        r = sess.get(url_segmento, headers=h, timeout=20, verify=False)
-        if r.status_code == 200:
-            with TS_CACHE_LOCK:
-                if len(TS_CACHE) >= TS_CACHE_MAX:
-                    mais = min(TS_CACHE.items(), key=lambda kv: kv[1][1])
-                    del TS_CACHE[mais[0]]
-                TS_CACHE[url_segmento] = (r.content, time.time())
-            return r.content, 200
-        return None, r.status_code
-    except Exception:
-        return None, 500
+    for tent in range(2):
+        sess = criar_sessao("firefox133")
+        try:
+            r = sess.get(url_segmento, headers=h, timeout=8, verify=False)
+            if r.status_code == 200:
+                with TS_CACHE_LOCK:
+                    if len(TS_CACHE) >= TS_CACHE_MAX:
+                        mais = min(TS_CACHE.items(), key=lambda kv: kv[1][1])
+                        del TS_CACHE[mais[0]]
+                    TS_CACHE[url_segmento] = (r.content, time.time())
+                return r.content, 200
+            if r.status_code in (403, 404):
+                return None, r.status_code
+        except Exception:
+            pass
+    return None, 502
 
 # ============ HTML ============
 HTML_PAGINA = '''
@@ -321,9 +324,19 @@ var player = videojs('player', {
   controls: true,
   autoplay: false,
   preload: 'auto',
-  fluid: false,
+  liveui: true,
   html5: {
-    vhs: { overrideNative: true }
+    vhs: {
+      overrideNative: true,
+      maxBufferLength: 60,
+      maxMaxBufferLength: 120,
+      liveSyncDuration: 10,
+      liveMaxLatencyDuration: 60,
+      enableLowInitialPlaylist: true,
+      limitRenditionByPlayerDimensions: false,
+      smoothQualityChange: true,
+      fastQualityChange: true
+    }
   }
 });
 var statusEl = document.getElementById('status');
@@ -362,7 +375,7 @@ function tocar() {
       btn.disabled = false;
       if (d.ok) {
         setStatus('Tocando: ' + canal, 'ok');
-        player.src({ src: '/play/' + encodeURIComponent(canal), type: 'application/x-mpegURL' });
+        player.src({ src: '/play/' + encodeURIComponent(canal) + '?t=' + Date.now(), type: 'application/x-mpegURL' });
         player.play().catch(function(e){ setStatus('Erro: ' + e.message, 'err'); });
       } else {
         setStatus(d.msg || 'Canal nao encontrado', 'err');
@@ -373,6 +386,37 @@ function tocar() {
       setStatus('Erro: ' + e.message, 'err');
     });
 }
+
+// ===== RECONEXAO AUTOMATICA =====
+function recarregar() {
+  var s = player.src();
+  if (!s || s.indexOf('/play/') === -1) return;
+  var canal = s.split('/play/')[1].split('?')[0];
+  player.src({ src: '/play/' + canal + '?t=' + Date.now(), type: 'application/x-mpegURL' });
+  player.play().catch(function(){});
+}
+
+player.on('error', function() {
+  setTimeout(recarregar, 1000);
+});
+
+// ===== DETECTA TRAVAMENTO (sem progresso por 10s) =====
+var ultimoTempo = 0;
+var travadoDesde = null;
+setInterval(function() {
+  if (player.paused() || player.readyState() < 2) { travadoDesde = null; return; }
+  var t = player.currentTime();
+  if (t === ultimoTempo) {
+    if (!travadoDesde) travadoDesde = Date.now();
+    else if (Date.now() - travadoDesde > 10000) {
+      travadoDesde = null;
+      recarregar();
+    }
+  } else {
+    ultimoTempo = t;
+    travadoDesde = null;
+  }
+}, 2000);
 
 input.addEventListener('keydown', function(e) {
   if (e.key === 'Enter') tocar();
