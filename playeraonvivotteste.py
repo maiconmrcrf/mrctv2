@@ -24,15 +24,12 @@ app = Flask(__name__)
 PORTA = int(os.environ.get("PORT", 10000))
 
 # ====== URL PUBLICA ======
-# No Render, deixa vazio que ele descobre sozinho pelo host
 URL_PUBLICA = os.environ.get("URL_PUBLICA", "")
 
 def url_base():
     if URL_PUBLICA:
         return URL_PUBLICA.rstrip("/")
-    # descobre pelo host do request
-    host = request.host_url.rstrip("/")
-    return host
+    return request.host_url.rstrip("/")
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 PROXIES = ["chrome120", "chrome110", "safari_15_5"]
@@ -430,27 +427,32 @@ def play():
     return f"Canal {canal} nao encontrado", 404
 
 def gerar_playlist(resp, url_a, cfg, tunel):
-    host = url_base()
     linhas = []
     base = getattr(resp, 'url', url_a)
-    ref = quote(cfg.get("referer", ""))
-    ck = quote(cfg.get("cookie", ""))
+    ref = quote(cfg.get("referer", "") or "", safe='')
+    ck = quote(cfg.get("cookie", "") or "", safe='')
     for l in resp.text.splitlines():
         ls = l.strip()
         if ls and not ls.startswith('#'):
             abs_url = urljoin(base, ls)
             ep = "/proxy_m3u8" if '.m3u8' in ls else "/ts_proxy"
-            linhas.append(f"{host}{ep}?url={quote(abs_url)}&tunel={tunel}&ref={ref}&ck={ck}")
+            q = f"url={quote(abs_url, safe='')}&tunel={tunel}"
+            if ref: q += f"&ref={ref}"
+            if ck: q += f"&ck={ck}"
+            linhas.append(f"{ep}?{q}")
         else:
             linhas.append(ls)
-    return Response("\n".join(linhas), status=200, headers={'Content-Type': 'application/vnd.apple.mpegurl'})
+    return Response("\n".join(linhas), status=200, headers={
+        'Content-Type': 'application/vnd.apple.mpegurl',
+        'Access-Control-Allow-Origin': '*'
+    })
 
 @app.route('/proxy_m3u8')
 def proxy_m3u8():
     target = unquote(request.args.get('url', ''))
     tunel = request.args.get('tunel', 'chrome120')
-    ref_custom = unquote(request.args.get('ref', ''))
-    ck_custom = unquote(request.args.get('ck', ''))
+    ref_custom = unquote(request.args.get('ref', '') or '')
+    ck_custom = unquote(request.args.get('ck', '') or '')
     if not target:
         return "URL ausente", 400
     sess = criar_sessao(tunel)
@@ -459,18 +461,25 @@ def proxy_m3u8():
     if ck_custom: h["Cookie"] = ck_custom
     try:
         r = sess.get(target, headers=h, timeout=8, verify=False)
-        host = url_base()
         linhas = []
         base = getattr(r, 'url', target)
+        ref_q = quote(ref_custom, safe='')
+        ck_q = quote(ck_custom, safe='')
         for l in r.text.splitlines():
             ls = l.strip()
             if ls and not ls.startswith('#'):
                 abs_url = urljoin(base, ls)
                 ep = "/proxy_m3u8" if '.m3u8' in ls else "/ts_proxy"
-                linhas.append(f"{host}{ep}?url={quote(abs_url)}&tunel={tunel}&ref={quote(ref_custom)}&ck={quote(ck_custom)}")
+                q = f"url={quote(abs_url, safe='')}&tunel={tunel}"
+                if ref_q: q += f"&ref={ref_q}"
+                if ck_q: q += f"&ck={ck_q}"
+                linhas.append(f"{ep}?{q}")
             else:
                 linhas.append(ls)
-        return Response("\n".join(linhas), status=200, headers={'Content-Type': 'application/vnd.apple.mpegurl'})
+        return Response("\n".join(linhas), status=200, headers={
+            'Content-Type': 'application/vnd.apple.mpegurl',
+            'Access-Control-Allow-Origin': '*'
+        })
     except Exception as e:
         return f"Erro: {e}", 500
 
@@ -478,8 +487,8 @@ def proxy_m3u8():
 def ts_proxy():
     target = unquote(request.args.get('url', ''))
     tunel = request.args.get('tunel', 'chrome120')
-    ref_custom = unquote(request.args.get('ref', ''))
-    ck_custom = unquote(request.args.get('ck', ''))
+    ref_custom = unquote(request.args.get('ref', '') or '')
+    ck_custom = unquote(request.args.get('ck', '') or '')
     if not target:
         return "URL ausente", 400
     with TS_CACHE_LOCK:
@@ -491,7 +500,8 @@ def ts_proxy():
                     'Content-Type': 'video/mp2t',
                     'Content-Length': str(len(dados)),
                     'Cache-Control': 'public, max-age=60',
-                    'Accept-Ranges': 'bytes'
+                    'Accept-Ranges': 'bytes',
+                    'Access-Control-Allow-Origin': '*'
                 })
     sess = criar_sessao(tunel)
     h = {"User-Agent": USER_AGENT, "Accept": "*/*"}
@@ -509,7 +519,8 @@ def ts_proxy():
             'Content-Type': 'video/mp2t',
             'Content-Length': str(len(conteudo)),
             'Cache-Control': 'public, max-age=60',
-            'Accept-Ranges': 'bytes'
+            'Accept-Ranges': 'bytes',
+            'Access-Control-Allow-Origin': '*'
         })
     except Exception as e:
         return f"Erro TS: {e}", 500
