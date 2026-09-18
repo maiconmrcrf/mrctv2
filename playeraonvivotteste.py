@@ -22,7 +22,6 @@ LINK_SERVEO = "https://tvmrc1.serveousercontent.com"
 LINK_CLOUDFLARE = "https://applying-terrorist-coding-sierra.trycloudflare.com"
 # ============================================
 
-# Detecta modo automaticamente
 MODO = "video" if os.path.exists("/data/data/com.termux") else "page"
 
 USER_AGENT = "Mozilla/5.0 (Android 15; Mobile; rv:155.0) Gecko/155.0 Firefox/155.0"
@@ -162,12 +161,6 @@ HTML = '''
   .controls button:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(108, 92, 231, 0.5); }
   .controls button:active { transform: translateY(0); }
   .controls button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-  .status {
-    text-align: center; margin-top: 14px; font-size: 0.85em;
-    color: #888; min-height: 20px; font-weight: 500;
-  }
-  .status.ok { color: #00b894; }
-  .status.err { color: #e74c3c; }
   .footer { text-align: center; color: #444; font-size: 0.72em; letter-spacing: 1px; margin-top: 18px; }
 </style>
 </head>
@@ -187,7 +180,6 @@ HTML = '''
           PLAY
         </button>
       </div>
-      <div class="status" id="status"></div>
     </div>
 
     <div class="footer">© MARCOS TV</div>
@@ -196,17 +188,11 @@ HTML = '''
 <script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
 <script>
 var player = videojs('player', { controls: true, autoplay: false, preload: 'auto' });
-var statusEl = document.getElementById('status');
 var btn = document.getElementById('btnPlay');
 var input = document.getElementById('canal');
 var MODO = "{{ modo }}";
 var LINK_SERVEO = "{{ link_serveo }}";
 var LINK_CLOUDFLARE = "{{ link_cloudflare }}";
-
-function setStatus(msg, tipo) {
-  statusEl.className = 'status' + (tipo ? ' ' + tipo : '');
-  statusEl.innerText = msg || '';
-}
 
 function fetchComTimeout(url, ms) {
   return new Promise((resolve, reject) => {
@@ -220,11 +206,9 @@ function fetchComTimeout(url, ms) {
 
 function tocar() {
   var canal = input.value.trim().toLowerCase();
-  if (!canal) { setStatus('Digite o nome do canal', 'err'); input.focus(); return; }
+  if (!canal) { input.focus(); return; }
 
-  setStatus('Conectando...');
   btn.disabled = true;
-
   var candidatos = [];
 
   if (MODO === 'page') {
@@ -234,11 +218,7 @@ function tocar() {
     candidatos.push('');
   }
 
-  if (!candidatos.length) {
-    btn.disabled = false;
-    setStatus('Nenhum link configurado', 'err');
-    return;
-  }
+  if (!candidatos.length) { btn.disabled = false; return; }
 
   var respostas = 0;
   var ganhou = false;
@@ -253,21 +233,17 @@ function tocar() {
         if (d && d.ok) {
           ganhou = true;
           btn.disabled = false;
-          var viaTxt = base ? base.replace(/^https?:\\/\\//, '').split('/')[0] : 'local';
-          setStatus('Tocando via ' + viaTxt, 'ok');
           var src = base + '/play/' + encodeURIComponent(canal);
           player.src({ src: src, type: 'application/x-mpegURL' });
-          player.play().catch(function(e){ setStatus('Erro: ' + e.message, 'err'); });
+          player.play().catch(function(){});
         } else if (respostas === candidatos.length) {
           btn.disabled = false;
-          setStatus('Canal indisponivel', 'err');
         }
       })
       .catch(() => {
         respostas++;
         if (!ganhou && respostas === candidatos.length) {
           btn.disabled = false;
-          setStatus('Nenhum link respondeu', 'err');
         }
       });
   });
@@ -300,11 +276,9 @@ def index():
 def testar(canal):
     canal = canal.strip().lower()
     if not re.match(r'^[a-z0-9_\-]+$', canal):
-        return jsonify({"ok": False, "msg": "Nome invalido"})
+        return jsonify({"ok": False})
     r, _ = buscar_m3u8(canal)
-    if r:
-        return jsonify({"ok": True})
-    return jsonify({"ok": False, "msg": "Canal indisponivel"})
+    return jsonify({"ok": bool(r)})
 
 @app.route('/play/<canal>')
 def play(canal):
@@ -393,7 +367,5 @@ if __name__ == '__main__':
         print(f"    cloudflared tunnel --url http://localhost:{PORTA}")
     else:
         print(f"  Rodando no Render (pagina HTML)")
-        print(f"  Serveo:      {LINK_SERVEO}")
-        print(f"  Cloudflare:  {LINK_CLOUDFLARE}")
     print("=" * 55)
     app.run(host='0.0.0.0', port=PORTA, threaded=True, debug=False, use_reloader=False)
