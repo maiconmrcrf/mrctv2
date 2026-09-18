@@ -18,7 +18,7 @@ PORTA = int(os.environ.get("PORT", 10000))
 # ============================================
 # CONFIGURAÇÃO — EDITE AQUI QUANDO MUDAR
 # ============================================
-LINK_CLOUDFLARE = "https://applying-terrorist-coding-sierra.trycloudflare.com"
+LINK_CLOUDFLARE = "https://reports-gore-hardcover-twenty.trycloudflare.com"
 # ============================================
 
 MODO = "video" if os.path.exists("/data/data/com.termux") else "page"
