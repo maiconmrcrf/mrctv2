@@ -47,7 +47,6 @@ PROXY_LAST_UPDATE = 0
 PROXY_UPDATE_INTERVAL = 600
 
 def testar_proxy(p):
-    """Testa se o proxy funciona contra um site de teste."""
     try:
         s = ImpersonateSession.Session(impersonate="firefox133")
         s.proxies = {"http": f"http://{p}", "https": f"http://{p}"}
@@ -495,7 +494,6 @@ def proxy_m3u8():
     if not target:
         return "URL ausente", 400
 
-    # tenta direto e com proxy
     for com_proxy in [False, True, True]:
         sess = criar_sessao(tunel, com_proxy=com_proxy)
         h = {"User-Agent": USER_AGENT, "Accept": "*/*"}
@@ -550,7 +548,8 @@ def ts_proxy():
                     'Accept-Ranges': 'bytes',
                     'Access-Control-Allow-Origin': '*'
                 })
-            for com_proxy in [False, True, True]:
+
+    for com_proxy in [False, True, True]:
         sess = criar_sessao(tunel, com_proxy=com_proxy)
         h = {"User-Agent": USER_AGENT, "Accept": "*/*"}
         if ref_custom: h["Referer"] = ref_custom
@@ -576,8 +575,8 @@ def ts_proxy():
             continue
     return "Falhou direto e via proxy", 502
 
+
 if __name__ == '__main__':
-    # Pré-carrega proxies no boot
     print("Carregando lista de proxies (isso pode levar 30s)...")
     threading.Thread(target=carregar_proxies, daemon=True).start()
     app.run(host='0.0.0.0', port=PORTA, threaded=True, debug=False, use_reloader=False)
