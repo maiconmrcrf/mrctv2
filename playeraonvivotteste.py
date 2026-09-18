@@ -32,7 +32,7 @@ TS_CACHE_LOCK = threading.Lock()
 TS_CACHE_MAX = 300
 TS_CACHE_TEMPO = 120
 
-# ====== STREAM ======
+# ====== STREAM (Termux) ======
 def criar_sessao():
     if USE_CURL:
         try:
@@ -100,70 +100,274 @@ HTML = '''
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MARCOS TV</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800;900&display=swap" rel="stylesheet">
 <link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet" />
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { height: 100%; }
+  html, body { height: 100%; overflow-x: hidden; }
   body {
     font-family: 'Inter', -apple-system, Arial, sans-serif;
-    background: radial-gradient(ellipse at top, #1a1a2e 0%, #0a0a0f 60%);
-    color: #fff; min-height: 100vh;
-    display: flex; align-items: center; justify-content: center;
+    background: #06060a;
+    color: #fff;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     padding: 20px;
+    position: relative;
+    overflow: hidden;
   }
-  .app { width: 100%; max-width: 900px; }
-  .brand { text-align: center; margin-bottom: 26px; }
+
+  /* ===== FUNDO ALHO NEO ===== */
+  .bg-orbs {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(100px);
+    opacity: 0.55;
+    animation: flutuar 18s ease-in-out infinite;
+  }
+  .orb1 {
+    width: 480px; height: 480px;
+    background: radial-gradient(circle, #6c5ce7 0%, transparent 70%);
+    top: -140px; left: -120px;
+    animation-delay: 0s;
+  }
+  .orb2 {
+    width: 420px; height: 420px;
+    background: radial-gradient(circle, #a29bfe 0%, transparent 70%);
+    bottom: -160px; right: -100px;
+    animation-delay: -6s;
+  }
+  .orb3 {
+    width: 380px; height: 380px;
+    background: radial-gradient(circle, #00b894 0%, transparent 70%);
+    top: 45%; left: 55%;
+    opacity: 0.35;
+    animation-delay: -12s;
+  }
+  @keyframes flutuar {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    33% { transform: translate(40px, -30px) scale(1.08); }
+    66% { transform: translate(-30px, 30px) scale(0.95); }
+  }
+
+  /* ===== GRADE SUTIL ===== */
+  .grid-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(rgba(108, 92, 231, 0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(108, 92, 231, 0.06) 1px, transparent 1px);
+    background-size: 60px 60px;
+    mask-image: radial-gradient(ellipse at center, #000 20%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse at center, #000 20%, transparent 75%);
+  }
+
+  /* ===== APP ===== */
+  .app {
+    width: 100%;
+    max-width: 900px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .brand {
+    text-align: center;
+    margin-bottom: 28px;
+    animation: aparecer 0.8s ease-out;
+  }
   .brand h1 {
-    font-size: clamp(2.2em, 8vw, 3.5em);
-    font-weight: 900; letter-spacing: 2px;
-    background: linear-gradient(135deg, #ffffff 0%, #a29bfe 50%, #6c5ce7 100%);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    background-clip: text; margin-bottom: 6px;
-    text-shadow: 0 0 40px rgba(108, 92, 231, 0.3);
+    font-size: clamp(2.4em, 9vw, 4em);
+    font-weight: 900;
+    letter-spacing: 3px;
+    background: linear-gradient(135deg, #ffffff 0%, #a29bfe 45%, #6c5ce7 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 8px;
+    text-shadow: 0 0 60px rgba(108, 92, 231, 0.5);
+    filter: drop-shadow(0 0 30px rgba(108, 92, 231, 0.4));
   }
   .brand .sub {
-    color: #6c5ce7; font-size: 0.75em; letter-spacing: 4px;
-    font-weight: 600; text-transform: uppercase; opacity: 0.85;
+    color: #a29bfe;
+    font-size: 0.72em;
+    letter-spacing: 6px;
+    font-weight: 500;
+    text-transform: uppercase;
+    opacity: 0.9;
   }
+
   .player-card {
-    background: rgba(20, 20, 31, 0.85);
-    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    background: rgba(15, 15, 25, 0.72);
+    backdrop-filter: blur(24px) saturate(150%);
+    -webkit-backdrop-filter: blur(24px) saturate(150%);
     border: 1px solid rgba(108, 92, 231, 0.25);
-    border-radius: 20px; padding: 18px;
-    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6), 0 0 80px rgba(108, 92, 231, 0.1);
+    border-radius: 24px;
+    padding: 20px;
+    box-shadow:
+      0 30px 80px rgba(0, 0, 0, 0.7),
+      0 0 120px rgba(108, 92, 231, 0.15),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    animation: aparecer 1s ease-out 0.15s both;
+    position: relative;
+    overflow: hidden;
   }
-  .video-js { width: 100%; height: 420px; border-radius: 14px; overflow: hidden; background: #000; }
+  .player-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(162, 155, 254, 0.6), transparent);
+  }
+
+  .video-js {
+    width: 100%;
+    height: 440px;
+    border-radius: 16px;
+    overflow: hidden;
+    background: #000;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+  }
   @media (max-width: 640px) { .video-js { height: 220px; } }
-  .controls { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+
+  .controls {
+    display: flex;
+    gap: 12px;
+    margin-top: 18px;
+    flex-wrap: wrap;
+  }
   .controls input {
-    flex: 1; min-width: 160px;
-    background: rgba(13, 13, 20, 0.9);
+    flex: 1;
+    min-width: 160px;
+    background: rgba(10, 10, 18, 0.9);
     border: 1.5px solid rgba(108, 92, 231, 0.3);
-    color: #fff; padding: 14px 16px; border-radius: 12px;
-    font-family: 'Inter', sans-serif; font-size: 1em; font-weight: 500;
-    outline: none; transition: all 0.2s;
+    color: #fff;
+    padding: 15px 18px;
+    border-radius: 14px;
+    font-family: 'Inter', sans-serif;
+    font-size: 1em;
+    font-weight: 500;
+    outline: none;
+    transition: all 0.25s ease;
+    letter-spacing: 0.3px;
   }
   .controls input:focus {
     border-color: #6c5ce7;
-    box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.15);
+    box-shadow: 0 0 0 4px rgba(108, 92, 231, 0.15), 0 0 30px rgba(108, 92, 231, 0.25);
+    background: rgba(15, 15, 25, 0.95);
   }
-  .controls input::placeholder { color: #555; }
+  .controls input::placeholder { color: #555; font-weight: 400; }
+
   .controls button {
     background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%);
-    color: #fff; border: none; padding: 14px 28px; border-radius: 12px;
-    font-family: 'Inter', sans-serif; font-weight: 700; font-size: 1em;
-    letter-spacing: 0.5px; cursor: pointer; transition: all 0.2s;
-    box-shadow: 0 8px 20px rgba(108, 92, 231, 0.35);
-    display: flex; align-items: center; gap: 8px;
+    color: #fff;
+    border: none;
+    padding: 15px 32px;
+    border-radius: 14px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 700;
+    font-size: 1em;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    box-shadow:
+      0 10px 30px rgba(108, 92, 231, 0.4),
+      inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    position: relative;
+    overflow: hidden;
   }
-  .controls button:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(108, 92, 231, 0.5); }
-  .controls button:active { transform: translateY(0); }
-  .controls button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-  .footer { text-align: center; color: #444; font-size: 0.72em; letter-spacing: 1px; margin-top: 18px; }
+  .controls button::before {
+    content: '';
+    position: absolute;
+    top: 0; left: -100%;
+    width: 100%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent);
+    transition: left 0.5s;
+  }
+  .controls button:hover::before { left: 100%; }
+  .controls button:hover {
+    transform: translateY(-3px);
+    box-shadow:
+      0 15px 40px rgba(108, 92, 231, 0.55),
+      0 0 60px rgba(162, 155, 254, 0.3),
+      inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  }
+  .controls button:active {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px rgba(108, 92, 231, 0.4);
+  }
+  .controls button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+
+  .footer {
+    text-align: center;
+    color: #444;
+    font-size: 0.72em;
+    letter-spacing: 2px;
+    margin-top: 22px;
+    font-weight: 500;
+    animation: aparecer 1s ease-out 0.3s both;
+  }
+
+  @keyframes aparecer {
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ===== CUSTOM VIDEO.JS ===== */
+  .video-js .vjs-big-play-button {
+    background: linear-gradient(135deg, rgba(108, 92, 231, 0.9), rgba(162, 155, 254, 0.9));
+    border: none;
+    width: 90px;
+    height: 90px;
+    line-height: 90px;
+    border-radius: 50%;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 10px 40px rgba(108, 92, 231, 0.5);
+    transition: all 0.3s ease;
+  }
+  .video-js .vjs-big-play-button:hover {
+    transform: translate(-50%, -50%) scale(1.1);
+    box-shadow: 0 15px 50px rgba(108, 92, 231, 0.7);
+  }
+  .video-js .vjs-control-bar {
+    background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
+    height: 50px;
+  }
+  .video-js .vjs-play-progress {
+    background: linear-gradient(90deg, #6c5ce7, #a29bfe);
+  }
+  .video-js .vjs-load-progress {
+    background: rgba(162, 155, 254, 0.2);
+  }
 </style>
 </head>
 <body>
+  <div class="bg-orbs">
+    <div class="orb orb1"></div>
+    <div class="orb orb2"></div>
+    <div class="orb orb3"></div>
+  </div>
+  <div class="grid-bg"></div>
+
   <div class="app">
     <div class="brand">
       <h1>MARCOS TV</h1>
@@ -173,9 +377,9 @@ HTML = '''
     <div class="player-card">
       <video id="player" class="video-js" controls playsinline preload="auto"></video>
       <div class="controls">
-        <input id="canal" type="text" placeholder="Nome do canal (ex: discoveryturbo)" autocomplete="off">
+        <input id="canal" type="text" placeholder="Digite o nome do canal" autocomplete="off">
         <button id="btnPlay" onclick="tocar()">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
           PLAY
         </button>
       </div>
@@ -186,7 +390,12 @@ HTML = '''
 
 <script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
 <script>
-var player = videojs('player', { controls: true, autoplay: false, preload: 'auto' });
+var player = videojs('player', {
+  controls: true,
+  autoplay: false,
+  preload: 'auto',
+  html5: { vhs: { overrideNative: true } }
+});
 var btn = document.getElementById('btnPlay');
 var input = document.getElementById('canal');
 var MODO = "{{ modo }}";
@@ -210,9 +419,7 @@ function tocar() {
   var candidatos = [];
 
   if (MODO === 'page') {
-    // 1) Cloudflare (Termux) — preferido
     if (LINK_CLOUDFLARE) candidatos.push(LINK_CLOUDFLARE.replace(/\\/$/, ''));
-    // 2) Render (fallback) — sempre por último
     candidatos.push('');
   } else {
     candidatos.push('');
@@ -359,7 +566,7 @@ if __name__ == '__main__':
     print("=" * 55)
     if MODO == "video":
         print(f"  Rodando no Termux (porta {PORTA})")
-        print(f"  Ative o tunel em outro terminal:")
+        print(f"  Ative o tunel:")
         print(f"    cloudflared tunnel --url http://localhost:{PORTA}")
     else:
         print(f"  Rodando no Render (pagina HTML)")
