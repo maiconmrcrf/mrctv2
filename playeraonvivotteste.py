@@ -32,7 +32,9 @@ def url_base():
     return request.host_url.rstrip("/")
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-PROXIES = ["chrome120", "chrome110", "safari_15_5"]
+
+# Impersonations disponíveis (firefox133 primeiro por causa dos embeds)
+IMPERSONATIONS = ["firefox133", "chrome120", "chrome110", "safari_15_5"]
 
 TS_CACHE = {}
 TS_CACHE_LOCK = threading.Lock()
@@ -108,6 +110,16 @@ def criar_sessao(imp=None):
         except Exception:
             pass
     return ImpersonateSession.Session()
+
+def imp_do_ua(ua):
+    """Escolhe impersonation baseado no User-Agent."""
+    if not ua:
+        return "chrome120"
+    if "Firefox" in ua:
+        return "firefox133"
+    if "Safari" in ua and "Chrome" not in ua:
+        return "safari_15_5"
+    return "chrome120"
 
 def obter_headers(cfg):
     h = {
@@ -289,8 +301,7 @@ def capturar_via_selenium(url_pagina):
 
 def resolver_auto(canal):
     """Tenta descobrir o stream do canal sem JSON salvo."""
-    # 1) Embed HTTP
-    sess = criar_sessao("chrome120")
+    sess = criar_sessao("firefox133")
     for var in ALIASES.get(canal, [canal]):
         for base in EMBEDS_DOMINIOS:
             embed_url = f"{base}/{var}"
@@ -302,9 +313,8 @@ def resolver_auto(canal):
                     "referer": ref,
                     "origin": base,
                 }
-                return r, u, cfg, "chrome120"
+                return r, u, cfg, "firefox133"
 
-    # 2) Selenium (só se disponível)
     if TEM_SELENIUM and chromedriver_bin and chromium_bin:
         for var in ALIASES.get(canal, [canal]):
             url_pagina = f"{BASE_SELENIUM}/{var}"
@@ -325,7 +335,7 @@ def resolver_auto(canal):
                             "cookie": ck,
                             "origin": BASE_SELENIUM,
                         }
-                        return r, u, cfg, "chrome120"
+                        return r, u, cfg, "firefox133"
                 except Exception:
                     pass
     return None, None, None, None
@@ -338,46 +348,64 @@ def buscar_stream(canal, bruto, log):
 
         try:
             j = json.loads(bruto)
+            url_in = (j.get("url") or "").strip()
+
+            # === ORIGIN: aceita origin/origem, mas só se for URL ===
+            origin_in = j.get("origin") or j.get("origem") or ""
+            if origin_in and not str(origin_in).startswith("http"):
+                origin_in = ""
+            if not origin_in and url_in:
+                m = re.match(r'(https?://[^/]+)', url_in)
+                if m:
+                    origin_in = m.group(1)
+
+            # === REFERER: aceita referer/referrer, fallback = origin ===
+            referer_in = j.get("referer") or j.get("referrer") or ""
+            if not referer_in and origin_in:
+                referer_in = origin_in + "/"
+
             cfg = {
-                "url": (j.get("url") or "").strip(),
+                "url": url_in,
                 "user_agent": (j.get("user_agent") or USER_AGENT).strip(),
                 "cookie": (j.get("cookie") or "").strip(),
-                "origin": (j.get("origin") or j.get("origem") or "").strip(),
-                "referer": (j.get("referer") or "").strip(),
+                "origin": origin_in.strip(),
+                "referer": referer_in.strip(),
             }
-            if cfg["origin"] and not cfg["origin"].startswith("http"):
-                cfg["origin"] = ""
-            if cfg["url"] and not cfg["origin"]:
-                m = re.match(r'(https?://[^/]+)', cfg["url"])
-                if m:
-                    cfg["origin"] = m.group(1)
-            if cfg["url"] and not cfg["referer"]:
-                cfg["referer"] = cfg["origin"] + "/" if cfg["origin"] else cfg["url"]
-            log.append(f"[INPUT] JSON url={cfg['url'][:100]}")
+            log.append(f"[INPUT] JSON url={cfg['url'][:80]}")
+            log.append(f"[INPUT] origin={cfg['origin'][:60]} ref={cfg['referer'][:60]} ua={'Firefox' if 'Firefox' in cfg['user_agent'] else 'Chrome/outro'}")
         except json.JSONDecodeError:
             pass
 
         if not cfg and bruto.startswith("http"):
             alvo = substituir_canal(bruto, canal)
-            cfg = {"url": alvo, "user_agent": USER_AGENT, "referer": alvo}
             m = re.match(r'(https?://[^/]+)', alvo)
-            if m:
-                cfg["origin"] = m.group(1)
-            log.append(f"[INPUT] URL={bruto[:100]}")
+            origin_auto = m.group(1) if m else ""
+            cfg = {
+                "url": alvo,
+                "user_agent": USER_AGENT,
+                "origin": origin_auto,
+                "referer": (origin_auto + "/") if origin_auto else alvo,
+            }
+            log.append(f"[INPUT] URL direta: {bruto[:80]}")
 
         if cfg and cfg.get("url"):
             alvo = substituir_canal(cfg["url"], canal)
-            for imp in PROXIES:
+
+            # === ESCOLHE IMPERSONATION PELO UA ===
+            imp_pref = imp_do_ua(cfg.get("user_agent", ""))
+            ordem = [imp_pref] + [p for p in IMPERSONATIONS if p != imp_pref]
+
+            for imp in ordem:
                 try:
                     s = criar_sessao(imp)
                     r = s.get(alvo, headers=obter_headers(cfg), timeout=10, verify=False)
+                    log.append(f"[CFG] {imp} status={r.status_code}")
                     if r.status_code == 200 and ("#EXTM3U" in r.text or "#EXT-X" in r.text):
-                        log.append(f"[CFG] {imp} OK")
+                        log.append(f"[CFG] OK com {imp}")
                         return r, alvo, cfg, imp
                 except Exception as e:
                     log.append(f"[CFG] {imp} erro: {e}")
 
-    # Fallback: auto-resolver
     log.append("[AUTO] Tentando descobrir via embeds...")
     return resolver_auto(canal)
 
@@ -494,7 +522,7 @@ function tocar() {
   setLog('Carregando ' + canal + '...');
   var src = '/play/' + encodeURIComponent(canal);
   player.src({ src: src, type: 'application/x-mpegURL' });
-  player.play().then(function(){ setLog('Tocando: ' + canal, true); }).catch(function(e){ setLog('Erro: ' + e.message); });
+    player.play().then(function(){ setLog('Tocando: ' + canal, true); }).catch(function(e){ setLog('Erro: ' + e.message); });
 }
 
 function salvar() {
