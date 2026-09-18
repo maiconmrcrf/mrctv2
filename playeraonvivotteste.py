@@ -550,9 +550,7 @@ def ts_proxy():
                     'Accept-Ranges': 'bytes',
                     'Access-Control-Allow-Origin': '*'
                 })
-
-    # tenta direto + proxy
-         for com_proxy in [False, True, True]:
+            for com_proxy in [False, True, True]:
         sess = criar_sessao(tunel, com_proxy=com_proxy)
         h = {"User-Agent": USER_AGENT, "Accept": "*/*"}
         if ref_custom: h["Referer"] = ref_custom
