@@ -21,21 +21,13 @@ logger = logging.getLogger("MARCOS_TV")
 logger.disabled = True
 
 app = Flask(__name__)
-PORTA = 9999
+PORTA = int(os.environ.get("PORT", 10000))
+
 PASTA_PERFIS = os.path.expanduser("./canais_dados")
-CACHE_FILE = os.path.expanduser("./streams_cache.pkl")
 os.makedirs(PASTA_PERFIS, exist_ok=True)
 
 PROXIES = ["chrome120", "chrome110", "safari_15_5"]
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-
-GITHUB_USER = "marcosfla961-coder"
-GITHUB_REPO = "IPTV"
-GITHUB_TOKEN = "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"
-GITHUB_API = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents"
-GITHUB_FILE = "lista_premium.m3u"
-
-URL_PUBLICA_CLOUDFLARE = ""
 
 CANAIS_DISPONIVEIS = [
     "cazetv", "cazetv2", "cazetv3", "cazetv4", "cazetv5", "cazetv6",
@@ -72,7 +64,6 @@ CANAIS_DISPONIVEIS = [
     "pt_sporttv1", "pt_sporttv2", "pt_sporttv3", "pt_sporttv4", "pt_sporttv5", "pt_sporttv6", "pt_sporttv7",
     "globoplaynovelas"
 ]
-
 CANAIS_DISPONIVEIS = list(dict.fromkeys(CANAIS_DISPONIVEIS))
 
 EMBEDS_DOMINIOS = [
@@ -100,137 +91,6 @@ TEMPO_CACHE_SELENIUM = 600
 
 SESSAO = ImpersonateSession.Session() if USE_CURL else ImpersonateSession.Session()
 SESSAO.headers.update({"User-Agent": USER_AGENT})
-
-def gerar_lista_m3u():
-    linhas = ["#EXTM3U"]
-    
-    # SÓ gera com URL pública se existir
-    if not URL_PUBLICA_CLOUDFLARE:
-        return None
-    
-    for p in listar_perfis():
-        linhas.append(f'#EXTINF:-1 tvg-name="{p.upper()}" group-title="MANUAIS",{p.upper()}')
-        linhas.append(f"{URL_PUBLICA_CLOUDFLARE}/play/{p}")
-    
-    for c in CANAIS_DISPONIVEIS:
-        linhas.append(f'#EXTINF:-1 tvg-name="{c.upper()}" group-title="CANAIS",{c.upper()}')
-        linhas.append(f"{URL_PUBLICA_CLOUDFLARE}/play/{c}")
-    
-    return "\n".join(linhas)
-
-def atualizar_lista_m3u_github():
-    conteudo_m3u = gerar_lista_m3u()
-    
-    # Se não tem URL pública, NÃO envia
-    if not conteudo_m3u:
-        print("⚠️ URL pública não definida. Lista M3U não enviada.")
-        return
-    
-    headers = {
-        "Authorization": f"token {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github.v3+json"
-    }
-    
-    try:
-        resp = SESSAO.get(f"{GITHUB_API}/{GITHUB_FILE}", headers=headers, verify=False)
-        
-        if resp.status_code == 200:
-            sha = resp.json().get("sha", "")
-            dados = {
-                "message": f"Atualizar lista premium: {time.strftime('%d/%m/%Y %H:%M')}",
-                "content": base64.b64encode(conteudo_m3u.encode()).decode(),
-                "sha": sha
-            }
-            resp_update = SESSAO.put(f"{GITHUB_API}/{GITHUB_FILE}", headers=headers, json=dados, verify=False)
-        else:
-            dados = {
-                "message": f"Criar lista premium: {time.strftime('%d/%m/%Y %H:%M')}",
-                "content": base64.b64encode(conteudo_m3u.encode()).decode()
-            }
-            resp_update = SESSAO.put(f"{GITHUB_API}/{GITHUB_FILE}", headers=headers, json=dados, verify=False)
-        
-        if resp_update.status_code in [200, 201]:
-            print(f"✅ Lista M3U atualizada no GitHub!")
-            print(f"📎 URL: https://raw.githubusercontent.com/{GITHUB_USER}/{GITHUB_REPO}/main/{GITHUB_FILE}")
-        else:
-            print(f"⚠️ Erro ao atualizar lista M3U: {resp_update.status_code}")
-    except Exception as e:
-        print(f"⚠️ Erro GitHub M3U: {e}")
-
-def atualizar_url_github(nova_url):
-    global URL_PUBLICA_CLOUDFLARE
-    if not nova_url:
-        return
-    
-    URL_PUBLICA_CLOUDFLARE = nova_url
-    
-    headers = {
-        "Authorization": f"token {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github.v3+json"
-    }
-    
-    conteudo = {"url_publica": nova_url, "timestamp": time.time()}
-    conteudo_json = json.dumps(conteudo, indent=2)
-    
-    try:
-        resp = SESSAO.get(f"{GITHUB_API}/url_publica.json", headers=headers, verify=False)
-        
-        if resp.status_code == 200:
-            sha = resp.json().get("sha", "")
-            dados = {
-                "message": f"Atualizar URL pública: {nova_url}",
-                "content": base64.b64encode(conteudo_json.encode()).decode(),
-                "sha": sha
-            }
-            resp_update = SESSAO.put(f"{GITHUB_API}/url_publica.json", headers=headers, json=dados, verify=False)
-        else:
-            dados = {
-                "message": f"Criar URL pública: {nova_url}",
-                "content": base64.b64encode(conteudo_json.encode()).decode()
-            }
-            resp_update = SESSAO.put(f"{GITHUB_API}/url_publica.json", headers=headers, json=dados, verify=False)
-        
-        if resp_update.status_code in [200, 201]:
-            print(f"✅ URL atualizada no GitHub: {nova_url}")
-            atualizar_lista_m3u_github()
-        else:
-            print(f"⚠️ Erro ao atualizar GitHub: {resp_update.status_code}")
-    except Exception as e:
-        print(f"⚠️ Erro GitHub: {e}")
-
-# Função para monitorar Cloudflare e atualizar URL
-def monitorar_cloudflare():
-    """Monitora a saída do Cloudflare Tunnel e atualiza URL quando muda."""
-    global URL_PUBLICA_CLOUDFLARE
-    
-    while True:
-        try:
-            # Inicia o túnel Cloudflare
-            p = subprocess.Popen(
-                ["cloudflared", "tunnel", "--url", f"http://localhost:{PORTA}"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True
-            )
-            
-            url_publica = None
-            
-            for line in iter(p.stdout.readline, ""):
-                match = re.search(r'https://[a-z0-9-]+\.trycloudflare\.com', line)
-                if match and 'api.trycloudflare.com' not in match.group(0):
-                    nova_url = match.group(0).strip()
-                    
-                    if nova_url != url_publica:
-                        url_publica = nova_url
-                        print(f"🌐 URL Cloudflare: {nova_url}")
-                        atualizar_url_github(nova_url)
-            
-            p.wait()
-            print("⚠️ Túnel Cloudflare caiu, reiniciando em 5s...")
-            time.sleep(5)
-        except Exception as e:
-            print(f"⚠️ Erro Cloudflare: {e}")
-            time.sleep(5)
 
 def get_path(nome):
     caminhos = [f"/data/data/com.termux/files/usr/bin/{nome}", f"/usr/bin/{nome}"]
@@ -275,13 +135,11 @@ def capturar_url_stream_selenium(url_pagina):
     driver = criar_driver()
     if driver is None:
         return None, None
-
     stream_url = None
     cookie_str = ""
     try:
         driver.get(url_pagina)
         time.sleep(2)
-
         iframes = driver.find_elements(By.TAG_NAME, "iframe")
         if iframes:
             try:
@@ -289,7 +147,6 @@ def capturar_url_stream_selenium(url_pagina):
                 time.sleep(2)
             except:
                 pass
-
         try:
             driver.execute_script("""
                 var v = document.querySelector('video');
@@ -300,10 +157,8 @@ def capturar_url_stream_selenium(url_pagina):
             time.sleep(2)
         except:
             pass
-
         cookies = driver.get_cookies()
         cookie_str = "; ".join([f"{c['name']}={c['value']}" for c in cookies])
-
         logs = driver.get_log("performance")
         urls_midia = []
         for entry in logs:
@@ -319,7 +174,6 @@ def capturar_url_stream_selenium(url_pagina):
         pass
     finally:
         driver.quit()
-
     return stream_url, cookie_str
 
 def obter_stream_http(base_url, canal):
@@ -339,7 +193,6 @@ def obter_stream_http(base_url, canal):
 
 def processar_embed_especial(canal):
     variacoes = ALIASES.get(canal, [canal])
-    
     for var_canal in variacoes:
         with LOCK_SELENIUM:
             if var_canal in CACHE_SELENIUM:
@@ -362,18 +215,13 @@ def processar_embed_especial(canal):
                             return r, stream_url, cfg, "chrome120"
                     except Exception:
                         pass
-        
         url_pagina = f"{BASE_SELENIUM}/{var_canal}"
-        
         stream_url, cookie_str = obter_stream_http(BASE_SELENIUM, var_canal)
-        
         if not stream_url:
             stream_url, cookie_str = capturar_url_stream_selenium(url_pagina)
-        
         if stream_url:
             with LOCK_SELENIUM:
                 CACHE_SELENIUM[var_canal] = (stream_url, cookie_str, time.time())
-            
             try:
                 headers = {
                     "User-Agent": USER_AGENT,
@@ -391,7 +239,6 @@ def processar_embed_especial(canal):
                     return r, stream_url, cfg, "chrome120"
             except Exception:
                 pass
-    
     return None, None, None, None
 
 def criar_sessao(imp=None):
@@ -429,26 +276,6 @@ def deletar_perfil(p):
         return True
     return False
 
-def capturar_json_bruto():
-    print("\nCole o JSON e pressione ENTER + Ctrl+D:")
-    txt = sys.stdin.read().strip()
-    if not txt: return
-    try:
-        d = json.loads(txt)
-        url = d.get("url", "").strip()
-        sug = extrair_nome_canal(url)
-        nome = input(f"Nome do perfil (Enter para '{sug}'): ").strip().lower() or sug
-        cfg = {
-            "perfil_nome": nome, "url": url, "canal_base": sug,
-            "user_agent": d.get("user_agent", "").strip(),
-            "cookie": d.get("cookie", "").strip(),
-            "origin": d.get("origin", "").strip(),
-            "referer": d.get("referer", "").strip()
-        }
-        salvar_perfil(nome, cfg)
-        print(f"✅ Perfil '{nome}' salvo!")
-    except Exception as e: print(f"❌ Erro: {e}")
-
 def obter_headers(cfg, ref_custom=None):
     h = {
         "User-Agent": cfg.get("user_agent") or USER_AGENT,
@@ -456,7 +283,6 @@ def obter_headers(cfg, ref_custom=None):
     }
     if cfg.get("cookie"): h["Cookie"] = cfg["cookie"]
     if cfg.get("origin"): h["Origin"] = cfg["origin"]
-    
     ref = ref_custom or cfg.get("referer")
     if ref:
         h["Referer"] = ref
@@ -482,7 +308,6 @@ def extrair_links_playlist(html):
 def processar_embed(canal):
     sess = criar_sessao("chrome120")
     variacoes = ALIASES.get(canal, [canal])
-    
     for var_canal in variacoes:
         for base in EMBEDS_DOMINIOS:
             embed_url = f"{base}/{var_canal}"
@@ -526,7 +351,6 @@ def cors(r):
 @app.route('/')
 def index():
     perfis = listar_perfis()
-    
     canais_manuais_html = ""
     for p in perfis:
         canais_manuais_html += f'''
@@ -534,13 +358,10 @@ def index():
             <div class="canal-nome" onclick="playCanal('{p}')">{p}</div>
             <button class="btn-del-canal" onclick="event.stopPropagation(); deletarCanal('{p}')">DEL</button>
         </div>'''
-    
     canais_fixos_html = ""
     for c in CANAIS_DISPONIVEIS:
         canais_fixos_html += f'<div class="canal-item" onclick="playCanal(\'{c}\')">{c}</div>'
-    
     canais_html = canais_manuais_html + canais_fixos_html
-    
     return render_template_string('''
     <!DOCTYPE html>
     <html lang="pt-BR">
@@ -568,14 +389,12 @@ def index():
             .player-box { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-bottom: 20px; }
             .video-js { width: 100%; height: 420px; border-radius: 8px; }
             @media(max-width: 768px){ .video-js { height: 240px; } }
-            
             .controls { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
             input { flex: 1; min-width: 200px; background: #0d0d14; border: 1px solid var(--border); padding: 12px; border-radius: 8px; color: #fff; outline: none; }
             button { border: none; padding: 12px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; color: #fff; transition: 0.2s; }
             .btn-play { background: var(--accent); }
             .btn-canais { background: var(--warning); }
             button:hover { opacity: 0.85; }
-
             .modal { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); }
             .modal-content { background: var(--card); margin: 5% auto; padding: 20px; border: 1px solid var(--border); border-radius: 12px; width: 90%; max-width: 600px; max-height: 80vh; overflow-y: auto; }
             .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
@@ -594,79 +413,59 @@ def index():
             <header>
                 <div class="brand">MARCOS TV</div>
             </header>
-
             <div class="player-box">
                 <video id="player" class="video-js vjs-theme-city" controls preload="auto" playsinline></video>
                 <div class="controls">
                     <input id="canal-input" placeholder="Nome do canal (ex: espn, tnt, warner)...">
                     <button class="btn-play" onclick="playModo()">PLAY</button>
-                    <button class="btn-canais" onclick="abrirModal()">📺 CANAIS</button>
+                    <button class="btn-canais" onclick="abrirModal()">CANAIS</button>
                 </div>
             </div>
         </div>
-
         <div id="modal-canais" class="modal">
             <div class="modal-content">
                 <div class="modal-header">
-                    <div class="modal-title">📺 LISTA DE CANAIS</div>
+                    <div class="modal-title">LISTA DE CANAIS</div>
                     <button class="close-btn" onclick="fecharModal()">X</button>
                 </div>
-                <div class="canal-grid">
+                                <div class="canal-grid">
                     {{ canais_html|safe }}
                 </div>
             </div>
         </div>
-
         <script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
         <script>
             var player = videojs('player');
-
             function playModo() {
                 var val = document.getElementById('canal-input').value.trim().toLowerCase();
                 if(!val) return;
                 carregarDirect('/play/' + val + '?raw=1');
             }
-
             function playCanal(nome) {
                 document.getElementById('canal-input').value = nome;
                 carregarDirect('/play/' + nome + '?raw=1');
                 fecharModal();
             }
-
             function carregarDirect(path) {
                 player.src({ src: path, type: 'application/x-mpegURL' });
                 player.play();
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             }
-
-            function abrirModal() {
-                document.getElementById('modal-canais').style.display = 'block';
-            }
-
-            function fecharModal() {
-                document.getElementById('modal-canais').style.display = 'none';
-            }
-
+            function abrirModal() { document.getElementById('modal-canais').style.display = 'block'; }
+            function fecharModal() { document.getElementById('modal-canais').style.display = 'none'; }
             function deletarCanal(nome) {
                 if(confirm('Tem certeza que deseja deletar "' + nome + '"?')) {
                     fetch('/deletar/' + nome, { method: 'DELETE' })
                         .then(function(response) { return response.json(); })
                         .then(function(data) {
-                            if(data.success) {
-                                alert('Deletado com sucesso!');
-                                location.reload();
-                            } else {
-                                alert('Erro ao deletar!');
-                            }
+                            if(data.success) { alert('Deletado!'); location.reload(); }
+                            else { alert('Erro ao deletar!'); }
                         });
                 }
             }
-
             window.onclick = function(event) {
                 var modal = document.getElementById('modal-canais');
-                if (event.target == modal) {
-                    modal.style.display = 'none';
-                }
+                if (event.target == modal) { modal.style.display = 'none'; }
             }
         </script>
     </body>
@@ -676,20 +475,15 @@ def index():
 @app.route('/play/<canal>')
 def rota_play(canal):
     canal = canal.strip('/')
-    if "Mozilla" in request.headers.get('User-Agent','') and "raw" not in request.args: return index()
-    
     resp, url_a, cfg, tunel = processar_embed(canal)
     if resp:
         return gerar_playlist_proxy(resp, url_a, cfg, tunel)
-    
     resp, url_a, cfg, tunel = processar_embed_especial(canal)
     if resp:
         return gerar_playlist_proxy(resp, url_a, cfg, tunel)
-    
     resp, url_a, cfg, tunel = processar_bruto(canal)
     if resp:
         return gerar_playlist_proxy(resp, url_a, cfg, tunel)
-    
     return f"Erro 404: Canal '{canal}' não encontrado", 404
 
 @app.route('/deletar/<canal>', methods=['DELETE'])
@@ -769,37 +563,12 @@ def ts_proxy():
         return f"Erro TS: {e}", 500
 
 if __name__ == '__main__':
-    while True:
-        os.system("clear || cls")
-        print("=======================================================")
-        print(" 📺 MARCOS TV (EMBED + SELENIUM + BRUTO + GITHUB)      ")
-        print("=======================================================")
-        perfis = listar_perfis()
-        print(f"Perfis locais: {perfis}")
-        print("\n [D] ADICIONAR DADO BRUTO  |  [I] INICIAR SERVIDOR  |  [S] SAIR")
-        op = input("Opção: ").strip().upper()
-        if op == "D": capturar_json_bruto(); input("ENTER para voltar...")
-        elif op == "I": break
-        elif op == "S": sys.exit(0)
-
-    os.system(f"fuser -k {PORTA}/tcp > /dev/null 2>&1")
-    os.system("clear || cls")
-    print("=" * 40)
-    print("       📺 MARCOS TV ONLINE")
-    print("=" * 40)
-    print(f"  ✅ Acesse: http://localhost:{PORTA}")
-    print("=" * 40)
-    print("  Iniciando túnel Cloudflare...")
-    print("=" * 40)
-    
-    thread_cloudflare = threading.Thread(target=monitorar_cloudflare, daemon=True)
-    thread_cloudflare.start()
-    
     import logging as flask_logging
     flask_logging.getLogger('werkzeug').disabled = True
     flask_logging.getLogger('flask').disabled = True
-    
     from werkzeug.serving import WSGIRequestHandler
     WSGIRequestHandler.log = lambda self, type, msg, *args: None
-    
-     app.run(host='0.0.0.0', port=PORTA, threaded=True, debug=False, use_reloader=False)
+    print("=" * 40)
+    print("       MARCOS TV ONLINE")
+    print("=" * 40)
+    app.run(host='0.0.0.0', port=PORTA, threaded=True, debug=False, use_reloader=False)
