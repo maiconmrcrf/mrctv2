@@ -11,10 +11,14 @@ except ImportError:
     import requests as ImpersonateSession
     USE_CURL = False
 
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
+try:
+    from selenium import webdriver
+    from selenium.webdriver.chrome.service import Service
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.common.by import By
+    TEM_SELENIUM = True
+except ImportError:
+    TEM_SELENIUM = False
 
 logging.basicConfig(level=logging.CRITICAL, format='%(asctime)s [%(levelname)s] %(message)s', datefmt='%H:%M:%S')
 logger = logging.getLogger("MARCOS_TV")
@@ -22,6 +26,9 @@ logger.disabled = True
 
 app = Flask(__name__)
 PORTA = int(os.environ.get("PORT", 10000))
+
+# ===== URL DO TERMUX (Serveo) — atualiza quando mudar =====
+URL_TERMUX = os.environ.get("URL_TERMUX", "https://tvmrc1.serveousercontent.com")
 
 PASTA_PERFIS = os.path.expanduser("./canais_dados")
 os.makedirs(PASTA_PERFIS, exist_ok=True)
@@ -109,7 +116,7 @@ chromium_bin = get_path("chromium-browser") or get_path("chromium")
 chromedriver_bin = get_path("chromedriver")
 
 def criar_driver():
-    if not chromedriver_bin or not chromium_bin:
+    if not TEM_SELENIUM or not chromedriver_bin or not chromium_bin:
         return None
     options = Options()
     options.binary_location = chromium_bin
@@ -373,14 +380,7 @@ def index():
         <link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet" />
         <link href="https://unpkg.com/@videojs/themes@1/dist/city/index.css" rel="stylesheet">
         <style>
-            :root {
-                --bg: #0a0a0f;
-                --card: #14141f;
-                --border: #272738;
-                --accent: #6c5ce7;
-                --danger: #e74c3c;
-                --warning: #e67e22;
-            }
+            :root { --bg: #0a0a0f; --card: #14141f; --border: #272738; --accent: #6c5ce7; --danger: #e74c3c; --warning: #e67e22; }
             * { box-sizing: border-box; margin: 0; padding: 0; }
             body { font-family: 'Inter', sans-serif; background: var(--bg); color: #fff; padding: 20px; }
             .container { max-width: 1000px; margin: 0 auto; }
@@ -425,10 +425,10 @@ def index():
         <div id="modal-canais" class="modal">
             <div class="modal-content">
                 <div class="modal-header">
-                    <div class="modal-title">LISTA DE CANAIS</div>
+                                        <div class="modal-title">LISTA DE CANAIS</div>
                     <button class="close-btn" onclick="fecharModal()">X</button>
                 </div>
-                                <div class="canal-grid">
+                <div class="canal-grid">
                     {{ canais_html|safe }}
                 </div>
             </div>
@@ -436,6 +436,8 @@ def index():
         <script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
         <script>
             var player = videojs('player');
+            var URL_TERMUX = "{{ url_termux }}";
+
             function playModo() {
                 var val = document.getElementById('canal-input').value.trim().toLowerCase();
                 if(!val) return;
@@ -447,7 +449,12 @@ def index():
                 fecharModal();
             }
             function carregarDirect(path) {
-                player.src({ src: path, type: 'application/x-mpegURL' });
+                // Se a página está no Render, o vídeo vem do Termux via Serveo
+                var urlFinal = path;
+                if (location.hostname.includes('onrender.com')) {
+                    urlFinal = URL_TERMUX + path;
+                }
+                player.src({ src: urlFinal, type: 'application/x-mpegURL' });
                 player.play();
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             }
@@ -470,7 +477,7 @@ def index():
         </script>
     </body>
     </html>
-    ''', canais_html=canais_html)
+    ''', canais_html=canais_html, url_termux=URL_TERMUX)
 
 @app.route('/play/<canal>')
 def rota_play(canal):
@@ -500,7 +507,6 @@ def gerar_playlist_proxy(resp, url_a, cfg, tunel):
     p_nome = cfg.get("perfil_nome", "")
     ref_encoded = quote(cfg.get("referer", ""))
     cookie_encoded = quote(cfg.get("cookie", ""))
-
     for l in resp.text.splitlines():
         ls = l.strip()
         if ls and not ls.startswith('#'):
@@ -508,7 +514,6 @@ def gerar_playlist_proxy(resp, url_a, cfg, tunel):
             ep = "/proxy_m3u8" if '.m3u8' in ls else "/ts_proxy"
             linhas.append(f"{host}{ep}?url={quote(abs_url)}&perfil={p_nome}&tunel={tunel}&ref={ref_encoded}&ck={cookie_encoded}")
         else: linhas.append(ls)
-
     return Response("\n".join(linhas), status=200, headers={'Content-Type': 'application/vnd.apple.mpegurl'})
 
 @app.route('/proxy_m3u8')
@@ -519,8 +524,7 @@ def proxy_m3u8():
     ref_custom = unquote(request.args.get('ref',''))
     ck_custom = unquote(request.args.get('ck',''))
     cfg = carregar_perfil(p_nome) or {"user_agent": USER_AGENT}
-    if ck_custom:
-        cfg["cookie"] = ck_custom
+    if ck_custom: cfg["cookie"] = ck_custom
     try:
         sess = criar_sessao(tunel)
         r = sess.get(target, headers=obter_headers(cfg, ref_custom), timeout=6, verify=False)
@@ -548,8 +552,7 @@ def ts_proxy():
     ref_custom = unquote(request.args.get('ref',''))
     ck_custom = unquote(request.args.get('ck',''))
     cfg = carregar_perfil(p_nome) or {"user_agent": USER_AGENT}
-    if ck_custom:
-        cfg["cookie"] = ck_custom
+    if ck_custom: cfg["cookie"] = ck_custom
     try:
         sess = criar_sessao(tunel)
         r = sess.get(target, headers=obter_headers(cfg, ref_custom), stream=True, timeout=8, verify=False)
@@ -570,5 +573,7 @@ if __name__ == '__main__':
     WSGIRequestHandler.log = lambda self, type, msg, *args: None
     print("=" * 40)
     print("       MARCOS TV ONLINE")
+    print("=" * 40)
+    print(f"  URL Termux: {URL_TERMUX}")
     print("=" * 40)
     app.run(host='0.0.0.0', port=PORTA, threaded=True, debug=False, use_reloader=False)
