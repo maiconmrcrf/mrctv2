@@ -31,16 +31,16 @@ TS_CACHE_LOCK = threading.Lock()
 TS_CACHE_MAX = 500
 TS_CACHE_TEMPO = 90
 
-# ====== CANAIS DIRETOS (não passam pelo proxy) ======
-CANAIS_DIRETOS = {
-    "premiereclubes": "http://79.127.238.228:14157/",
-    "warner":         "http://79.127.238.228:14647/",
+# ====== CANAIS MPEG-TS DIRETOS (tocados via mpegts.js) ======
+CANAIS_MPEGTS = {
+    "premiere1": "http://79.127.238.228:14157/",
+    "warner":    "http://79.127.238.228:14647/",
 }
 
 # ====== CANAIS FIXOS NA INTERFACE ======
 CANAIS_FIXOS = [
     "espn",
-    "premiereclubes",
+    "premiere1",
     "tnt",
     "telecinepipoca",
     "telecinefun",
@@ -168,14 +168,15 @@ HTML_PAGINA = '''
     box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6), 0 0 80px rgba(108, 92, 231, 0.1);
     margin-bottom: 18px;
   }
-  .video-js {
+  .video-js, #player_mpeg {
     width: 100%;
     height: 420px;
     border-radius: 14px;
     overflow: hidden;
     background: #000;
   }
-  @media (max-width: 640px) { .video-js { height: 220px; } }
+  #player_mpeg { display: none; }
+  @media (max-width: 640px) { .video-js, #player_mpeg { height: 220px; } }
   .controls {
     display: flex;
     gap: 10px;
@@ -295,6 +296,7 @@ HTML_PAGINA = '''
 
     <div class="player-card">
       <video id="player" class="video-js" controls playsinline preload="auto"></video>
+      <video id="player_mpeg" controls playsinline></video>
 
       <div class="canais-fixos">
         {% for c in canais %}
@@ -317,6 +319,7 @@ HTML_PAGINA = '''
   </div>
 
 <script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mpegts.js@1.7.3/dist/mpegts.js"></script>
 <script>
 var player = videojs('player', {
   controls: true,
@@ -341,8 +344,16 @@ var statusEl = document.getElementById('status');
 var btn = document.getElementById('btnPlay');
 var input = document.getElementById('canal');
 
-// ===== CANAIS DIRETOS (vem do backend) =====
-var CANAIS_DIRETOS = {{ canais_diretos_json|safe }};
+// Elementos
+var videoJsEl = document.getElementById('player');
+var videoMpegEl = document.getElementById('player_mpeg');
+
+// Estado do mpegts
+var playerMpeg = null;
+var modoMpeg = false;
+
+// ===== CANAIS MPEG-TS (vem do backend) =====
+var CANAIS_MPEGTS = {{ canais_mpegts_json|safe }};
 
 function setStatus(msg, tipo) {
   statusEl.className = 'status' + (tipo ? ' ' + tipo : '');
@@ -352,6 +363,67 @@ function setStatus(msg, tipo) {
 function marcarAtivo(el) {
   document.querySelectorAll('.canal-btn').forEach(function(b){ b.classList.remove('ativo'); });
   if (el) el.classList.add('ativo');
+}
+
+// ===== PARAR MPEGTS =====
+function pararMpeg() {
+  if (playerMpeg) {
+    try { playerMpeg.pause(); } catch(e){}
+    try { playerMpeg.unload(); } catch(e){}
+    try { playerMpeg.detachMediaElement(); } catch(e){}
+    try { playerMpeg.destroy(); } catch(e){}
+    playerMpeg = null;
+  }
+  modoMpeg = false;
+}
+
+// ===== TOCAR MPEG-TS (stream direto) =====
+function tocarMpegTs(url) {
+  pararMpeg();
+  player.pause();
+
+  // Esconde Video.js, mostra o video puro
+  videoJsEl.style.display = 'none';
+  videoMpegEl.style.display = 'block';
+  modoMpeg = true;
+
+  try {
+    playerMpeg = mpegts.createPlayer({
+      type: 'mpegts',
+      isLive: true,
+      url: url
+    }, {
+      enableWorker: false,
+      enableStashBuffer: false,
+      stashInitialSize: 128,
+      liveBufferLatencyChasing: true,
+      liveBufferLatencyMaxLatency: 3.0,
+      liveBufferLatencyMinRemain: 0.3
+    });
+
+    playerMpeg.attachMediaElement(videoMpegEl);
+    playerMpeg.load();
+
+    var playPromise = playerMpeg.play();
+    if (playPromise && playPromise.catch) {
+      playPromise.catch(function(e){ setStatus('Erro ao tocar: ' + e.message, 'err'); });
+    }
+
+    setStatus('Tocando (MPEG-TS): ' + url, 'ok');
+  } catch (e) {
+    setStatus('Erro MPEG-TS: ' + e.message, 'err');
+  }
+}
+
+// ===== TOCAR HLS (Video.js normal) =====
+function tocarHls(canal) {
+  pararMpeg();
+  // Mostra Video.js, esconde o video puro
+  videoMpegEl.style.display = 'none';
+  videoJsEl.style.display = 'block';
+
+  player.src({ src: '/play/' + encodeURIComponent(canal) + '?t=' + Date.now(), type: 'application/x-mpegURL' });
+  player.play().catch(function(e){ setStatus('Erro: ' + e.message, 'err'); });
 }
 
 function tocarFixo(canal, el) {
@@ -368,15 +440,14 @@ function tocar() {
     return;
   }
 
-  // ===== CANAL DIRETO: toca sem passar pelo proxy =====
-  if (CANAIS_DIRETOS[canal]) {
-    setStatus('Abrindo ' + canal + ' (direto)...', 'ok');
-    player.src({ src: CANAIS_DIRETOS[canal], type: 'application/x-mpegURL' });
-    player.play().catch(function(e){ setStatus('Erro: ' + e.message, 'err'); });
+  // ===== CANAL MPEG-TS: toca direto com mpegts.js =====
+  if (CANAIS_MPEGTS[canal]) {
+    setStatus('Abrindo ' + canal + ' (MPEG-TS)...', 'ok');
+    tocarMpegTs(CANAIS_MPEGTS[canal]);
     return;
   }
 
-  // ===== CANAL NORMAL: passa pelo proxy =====
+  // ===== CANAL NORMAL: passa pelo proxy HLS =====
   setStatus('Carregando ' + canal + '...');
   btn.disabled = true;
 
@@ -386,8 +457,7 @@ function tocar() {
       btn.disabled = false;
       if (d.ok) {
         setStatus('Tocando: ' + canal, 'ok');
-        player.src({ src: '/play/' + encodeURIComponent(canal) + '?t=' + Date.now(), type: 'application/x-mpegURL' });
-        player.play().catch(function(e){ setStatus('Erro: ' + e.message, 'err'); });
+        tocarHls(canal);
       } else {
         setStatus(d.msg || 'Canal nao encontrado', 'err');
       }
@@ -398,8 +468,9 @@ function tocar() {
     });
 }
 
-// ===== RECONEXAO AUTOMATICA =====
+// ===== RECONEXAO AUTOMATICA (só HLS) =====
 function recarregar() {
+  if (modoMpeg) return;
   var s = player.src();
   if (!s || s.indexOf('/play/') === -1) return;
   var canal = s.split('/play/')[1].split('?')[0];
@@ -414,6 +485,7 @@ player.on('error', function() {
 var ultimoTempo = 0;
 var travadoDesde = null;
 setInterval(function() {
+  if (modoMpeg) return; // não checa travamento no mpegts
   if (player.paused() || player.readyState() < 2) { travadoDesde = null; return; }
   var t = player.currentTime();
   if (t === ultimoTempo) {
@@ -448,7 +520,7 @@ def index():
     return render_template_string(
         HTML_PAGINA,
         canais=CANAIS_FIXOS,
-        canais_diretos_json=json.dumps(CANAIS_DIRETOS)
+        canais_mpegts_json=json.dumps(CANAIS_MPEGTS)
     )
 
 @app.route('/testar/<canal>')
