@@ -11,11 +11,30 @@ except ImportError:
     import requests as ImpersonateSession
     USE_CURL = False
 
+try:
+    from selenium import webdriver
+    from selenium.webdriver.chrome.service import Service
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.common.by import By
+    TEM_SELENIUM = True
+except ImportError:
+    TEM_SELENIUM = False
+
+logging.basicConfig(level=logging.CRITICAL, format='%(asctime)s [%(levelname)s] %(message)s', datefmt='%H:%M:%S')
+logger = logging.getLogger("MARCOS_TV")
+logger.disabled = True
+
 app = Flask(__name__)
-PORTA = int(os.environ.get("PORT", 10000))
+PORTA = int(os.environ.get("PORT", 9999))
 
 # ===== URL DO TERMUX (Serveo) — atualiza quando mudar =====
 URL_TERMUX = os.environ.get("URL_TERMUX", "https://tvmrc1.serveousercontent.com")
+
+PASTA_PERFIS = os.path.expanduser("./canais_dados")
+os.makedirs(PASTA_PERFIS, exist_ok=True)
+
+PROXIES = ["chrome120", "chrome110", "safari_15_5"]
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
 CANAIS_DISPONIVEIS = [
     "cazetv", "cazetv2", "cazetv3", "cazetv4", "cazetv5", "cazetv6",
@@ -54,6 +73,12 @@ CANAIS_DISPONIVEIS = [
 ]
 CANAIS_DISPONIVEIS = list(dict.fromkeys(CANAIS_DISPONIVEIS))
 
+def listar_perfis():
+    try:
+        return sorted([os.path.splitext(f)[0] for f in os.listdir(PASTA_PERFIS) if f.endswith('.json')])
+    except Exception:
+        return []
+
 @app.after_request
 def cors(r):
     r.headers['Access-Control-Allow-Origin'] = '*'
@@ -62,16 +87,21 @@ def cors(r):
 
 @app.route('/')
 def index():
+    perfis = listar_perfis()
+    canais_manuais_html = ""
+    for p in perfis:
+        canais_manuais_html += f'<div class="canal-item canal-manual" onclick="playCanal(\'{p}\')">{p}</div>'
     canais_fixos_html = ""
     for c in CANAIS_DISPONIVEIS:
         canais_fixos_html += f'<div class="canal-item" onclick="playCanal(\'{c}\')">{c}</div>'
+    canais_html = canais_manuais_html + canais_fixos_html
     return render_template_string('''
     <!DOCTYPE html>
     <html lang="pt-BR">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>MarcosTV Premium</title>
+        <title>MARCOS TV</title>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
         <link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet" />
         <link href="https://unpkg.com/@videojs/themes@1/dist/city/index.css" rel="stylesheet">
@@ -99,6 +129,7 @@ def index():
             .canal-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(100px,1fr)); gap:8px; }
             .canal-item { background:#0d0d14; border:1px solid var(--border); padding:8px; border-radius:6px; text-align:center; cursor:pointer; font-size:0.8em; text-transform:uppercase; transition:0.2s; }
             .canal-item:hover { background:var(--accent); border-color:var(--accent); }
+            .canal-manual { background:#1a1a2e; border-color:var(--accent); }
         </style>
     </head>
     <body>
@@ -107,7 +138,7 @@ def index():
             <div class="player-box">
                 <video id="player" class="video-js vjs-theme-city" controls preload="auto" playsinline></video>
                 <div class="controls">
-                    <input id="canal-input" placeholder="Nome do canal (ex: espn, tnt)...">
+                    <input id="canal-input" placeholder="Nome do canal (ex: espn, tnt, warner)...">
                     <button class="btn-play" onclick="playModo()">PLAY</button>
                     <button class="btn-canais" onclick="abrirModal()">CANAIS</button>
                 </div>
@@ -152,7 +183,7 @@ def index():
         </script>
     </body>
     </html>
-    ''', canais_html=canais_fixos_html, url_termux=URL_TERMUX)
+    ''', canais_html=canais_html, url_termux=URL_TERMUX)
 
 if __name__ == '__main__':
     import logging as _l
@@ -160,4 +191,9 @@ if __name__ == '__main__':
     _l.getLogger('flask').disabled = True
     from werkzeug.serving import WSGIRequestHandler
     WSGIRequestHandler.log = lambda self, type, msg, *args: None
+    print("=" * 50)
+    print("       MARCOS TV - RENDER")
+    print("=" * 50)
+    print(f"  Termux: {URL_TERMUX}")
+    print("=" * 50)
     app.run(host='0.0.0.0', port=PORTA, threaded=True, debug=False, use_reloader=False)
