@@ -31,7 +31,7 @@ TS_CACHE_LOCK = threading.Lock()
 TS_CACHE_MAX = 500
 TS_CACHE_TEMPO = 90
 
-# ====== CANAIS MPEG-TS (passam pelo proxy do Render) ======
+# ====== CANAIS MPEG-TS DIRETOS ======
 CANAIS_MPEGTS = {
     "premiere1": "http://79.127.238.228:14157/",
     "warner":    "http://79.127.238.228:14647/",
@@ -336,8 +336,8 @@ var videoMpegEl = document.getElementById('player_mpeg');
 var playerMpeg = null;
 var modoMpeg = false;
 
-// ===== CANAIS MPEG-TS (vem do backend) =====
 var CANAIS_MPEGTS = {{ canais_mpegts_json|safe }};
+var PAGINA_HTTPS = (location.protocol === 'https:');
 
 function marcarAtivo(el) {
   document.querySelectorAll('.canal-btn').forEach(function(b){ b.classList.remove('ativo'); });
@@ -355,7 +355,7 @@ function pararMpeg() {
   modoMpeg = false;
 }
 
-// ===== TOCA MPEG-TS PASSANDO PELO PROXY DO RENDER (HTTPS) =====
+// ===== TOCA MPEG-TS DIRETO =====
 function tocarMpegTs(canal) {
   pararMpeg();
   player.pause();
@@ -364,8 +364,14 @@ function tocarMpegTs(canal) {
   videoMpegEl.style.display = 'block';
   modoMpeg = true;
 
-  // Usa o proxy do Render (HTTPS) — o servidor baixa do IPTV e repassa
-  var url = '/mpegts_proxy?canal=' + encodeURIComponent(canal);
+  // Se a página for HTTP → usa direto
+  // Se for HTTPS → cai no proxy (pro navegador não bloquear)
+  var url;
+  if (PAGINA_HTTPS) {
+    url = '/mpegts_proxy?canal=' + encodeURIComponent(canal);
+  } else {
+    url = CANAIS_MPEGTS[canal];
+  }
 
   try {
     playerMpeg = mpegts.createPlayer({
@@ -500,10 +506,9 @@ def play(canal):
         'Cache-Control': 'no-cache'
     })
 
-# ============ PROXY MPEG-TS ============
+# ============ PROXY MPEG-TS (só usado se HTTPS) ============
 @app.route('/mpegts_proxy')
 def mpegts_proxy():
-    """Faz streaming do MPEG-TS do IPTV pro navegador (via HTTPS)."""
     canal = (request.args.get('canal') or '').strip().lower()
     if canal not in CANAIS_MPEGTS:
         return "Canal invalido", 400
@@ -516,10 +521,10 @@ def mpegts_proxy():
     }
     sess = criar_sessao()
     try:
-        r = sess.get(target, headers=h, timeout=15, verify=False, stream=True)
+        r = sess.get(target, headers=h, timeout=(5, 120), verify=False, stream=True)
         def gerar():
             try:
-                for chunk in r.iter_content(64 * 1024):
+                for chunk in r.iter_content(16 * 1024):
                     if chunk:
                         yield chunk
             except Exception:
@@ -529,6 +534,7 @@ def mpegts_proxy():
             'Access-Control-Allow-Origin': '*',
             'Cache-Control': 'no-cache',
             'X-Accel-Buffering': 'no',
+            'Connection': 'keep-alive',
         })
     except Exception as e:
         return f"Erro: {e}", 500
