@@ -15,6 +15,8 @@ session.mount('https://', adapter)
 app = Flask(__name__)
 CORS(app)
 
+PORTA = int(os.environ.get("PORT", 8888))
+
 ULTIMO_CANAL = "---"
 DOMINIO_ATUAL = "---"
 
@@ -73,9 +75,9 @@ def obter_ip_rede():
         s.connect(('8.8.8.8', 1))
         ip = s.getsockname()[0]
         s.close()
-        return f"http://{ip}:8888"
+        return f"http://{ip}:{PORTA}"
     except Exception:
-        return "http://127.0.0.1:8888"
+        return f"http://127.0.0.1:{PORTA}"
 
 
 @app.route('/stream/<nome>')
@@ -196,7 +198,7 @@ def proxy_ts():
 
 @app.route('/playlist')
 def baixar_playlist():
-    ip = obter_ip_rede()
+    ip = request.host_url.rstrip('/')
     linhas = ["#EXTM3U"]
     for c in sorted(CANAIS):
         linhas.append(f'#EXTINF:-1 tvg-name="{c.upper()}" group-title="CANAIS",{c.upper()}')
@@ -209,7 +211,7 @@ HTML_PAGINA = """
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>MARCOS TV</title>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
 <link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet">
@@ -218,7 +220,7 @@ HTML_PAGINA = """
   html { height: 100%; overflow: hidden; }
   body {
     font-family: 'Orbitron', 'Inter', -apple-system, Arial, sans-serif;
-    background: #000308;
+    background: #000a14;
     color: #fff;
     height: 100vh;
     overflow: hidden;
@@ -226,16 +228,17 @@ HTML_PAGINA = """
     flex-direction: column;
     position: relative;
   }
+  /* ===== FUNDO ===== */
   .stars {
     position: fixed; inset: 0; z-index: 0; pointer-events: none;
     background-image:
-      radial-gradient(1px 1px at 20% 30%, #00ff88, transparent),
-      radial-gradient(1px 1px at 60% 70%, #00ccff, transparent),
-      radial-gradient(1px 1px at 80% 20%, #00ff88, transparent),
-      radial-gradient(1px 1px at 10% 80%, #00ccff, transparent),
+      radial-gradient(1px 1px at 20% 30%, #ff8c00, transparent),
+      radial-gradient(1px 1px at 60% 70%, #0088ff, transparent),
+      radial-gradient(1px 1px at 80% 20%, #ffa500, transparent),
+      radial-gradient(1px 1px at 10% 80%, #00aaff, transparent),
       radial-gradient(1px 1px at 40% 50%, #ffffff, transparent),
-      radial-gradient(1px 1px at 90% 60%, #00ff88, transparent),
-      radial-gradient(1px 1px at 30% 90%, #00ccff, transparent),
+      radial-gradient(1px 1px at 90% 60%, #ff8c00, transparent),
+      radial-gradient(1px 1px at 30% 90%, #0088ff, transparent),
       radial-gradient(1px 1px at 70% 10%, #ffffff, transparent);
     animation: estrelas 20s linear infinite;
   }
@@ -248,9 +251,26 @@ HTML_PAGINA = """
     filter: blur(140px);
     animation: pulsar 6s ease-in-out infinite;
   }
-  .glow1 { width: 700px; height: 700px; background: radial-gradient(circle, #0066ff 0%, transparent 70%); top: -250px; left: -200px; opacity: 0.6; }
-  .glow2 { width: 600px; height: 600px; background: radial-gradient(circle, #00ff88 0%, transparent 70%); bottom: -200px; right: -180px; opacity: 0.4; animation-delay: -3s; }
-  .glow3 { width: 500px; height: 500px; background: radial-gradient(circle, #00ccff 0%, transparent 70%); top: 40%; left: 40%; opacity: 0.25; animation-delay: -1.5s; }
+  .glow1 {
+    width: 700px; height: 700px;
+    background: radial-gradient(circle, #0088ff 0%, transparent 70%);
+    top: -250px; left: -200px;
+    opacity: 0.6;
+  }
+  .glow2 {
+    width: 600px; height: 600px;
+    background: radial-gradient(circle, #ff8c00 0%, transparent 70%);
+    bottom: -200px; right: -180px;
+    opacity: 0.5;
+    animation-delay: -3s;
+  }
+  .glow3 {
+    width: 500px; height: 500px;
+    background: radial-gradient(circle, #ffa500 0%, transparent 70%);
+    top: 40%; left: 40%;
+    opacity: 0.3;
+    animation-delay: -1.5s;
+  }
   @keyframes pulsar {
     0%, 100% { transform: scale(1); opacity: 0.5; }
     50% { transform: scale(1.2); opacity: 0.8; }
@@ -258,43 +278,55 @@ HTML_PAGINA = """
   .grid-bg {
     position: fixed; inset: 0; z-index: 0; pointer-events: none;
     background-image:
-      linear-gradient(rgba(0, 255, 136, 0.05) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(0, 204, 255, 0.05) 1px, transparent 1px);
+      linear-gradient(rgba(0, 136, 255, 0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 140, 0, 0.06) 1px, transparent 1px);
     background-size: 60px 60px;
     mask-image: radial-gradient(ellipse at center, #000 5%, transparent 65%);
     -webkit-mask-image: radial-gradient(ellipse at center, #000 5%, transparent 65%);
   }
+
+  /* ===== TOPO FIXO ===== */
   .topo-fixo {
     position: relative; z-index: 10;
     flex-shrink: 0;
     padding: 10px 14px;
-    background: linear-gradient(180deg, rgba(0, 3, 8, 0.98) 0%, rgba(0, 3, 8, 0.85) 100%);
-    border-bottom: 1px solid rgba(0, 255, 136, 0.3);
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(0, 255, 136, 0.15);
+    background: linear-gradient(180deg, rgba(0, 6, 14, 0.98) 0%, rgba(0, 6, 14, 0.85) 100%);
+    border-bottom: 1px solid rgba(0, 136, 255, 0.35);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(255, 140, 0, 0.2);
   }
   .brand { text-align: center; margin-bottom: 8px; }
   .brand h1 {
     font-family: 'Orbitron', sans-serif;
     font-size: clamp(1.2em, 5vw, 1.9em);
     font-weight: 900; letter-spacing: 6px;
-    color: #00ff88;
-    text-shadow: 0 0 10px #00ff88, 0 0 25px #00ff88, 0 0 50px rgba(0, 255, 136, 0.7), 0 0 80px rgba(0, 102, 255, 0.5);
+    background: linear-gradient(135deg, #ffffff 0%, #0088ff 40%, #ff8c00 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    filter: drop-shadow(0 0 15px rgba(0, 136, 255, 0.8)) drop-shadow(0 0 30px rgba(255, 140, 0, 0.5));
     animation: brilhar 3s ease-in-out infinite;
   }
   @keyframes brilhar {
-    0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.3); }
+    0%, 100% { filter: drop-shadow(0 0 15px rgba(0, 136, 255, 0.8)) drop-shadow(0 0 30px rgba(255, 140, 0, 0.5)) brightness(1); }
+    50% { filter: drop-shadow(0 0 25px rgba(0, 136, 255, 1)) drop-shadow(0 0 50px rgba(255, 140, 0, 0.8)) brightness(1.3); }
   }
   .brand .sub {
-    color: #00ccff; font-size: 0.55em; letter-spacing: 8px;
+    color: #ff8c00;
+    font-size: 0.55em; letter-spacing: 8px;
     font-weight: 600; text-transform: uppercase;
-    text-shadow: 0 0 15px rgba(0, 204, 255, 1);
+    text-shadow: 0 0 15px rgba(255, 140, 0, 1), 0 0 30px rgba(0, 136, 255, 0.5);
   }
+
+  /* ===== PLAYER ===== */
   .player-wrap {
     position: relative;
-    background: linear-gradient(135deg, rgba(0, 10, 25, 0.95), rgba(0, 20, 40, 0.95));
-    border: 1.5px solid rgba(0, 255, 136, 0.5);
+    background: linear-gradient(135deg, rgba(0, 10, 25, 0.95), rgba(10, 15, 30, 0.95));
+    border: 1.5px solid rgba(0, 136, 255, 0.5);
     border-radius: 12px; padding: 6px;
-    box-shadow: 0 0 30px rgba(0, 255, 136, 0.3), 0 0 60px rgba(0, 102, 255, 0.2), 0 20px 60px rgba(0, 0, 0, 0.9);
+    box-shadow:
+      0 0 30px rgba(0, 136, 255, 0.35),
+      0 0 60px rgba(255, 140, 0, 0.2),
+      0 20px 60px rgba(0, 0, 0, 0.9);
     overflow: hidden;
   }
   .player-wrap::before {
@@ -302,7 +334,7 @@ HTML_PAGINA = """
     position: absolute;
     top: -2px; left: -100%;
     width: 100%; height: 2px;
-    background: linear-gradient(90deg, transparent, #00ff88, #00ccff, #00ff88, transparent);
+    background: linear-gradient(90deg, transparent, #0088ff, #ff8c00, #0088ff, transparent);
     animation: scanline 4s linear infinite;
   }
   @keyframes scanline { 0% { left: -100%; } 100% { left: 100%; } }
@@ -310,6 +342,8 @@ HTML_PAGINA = """
     width: 100%; height: 32vh; max-height: 280px; min-height: 140px;
     border-radius: 8px; overflow: hidden; background: #000;
   }
+
+  /* ===== ÁREA DOS CANAIS ===== */
   .canais-area {
     position: relative; z-index: 1;
     flex: 1;
@@ -318,7 +352,11 @@ HTML_PAGINA = """
     -webkit-overflow-scrolling: touch;
   }
   .canais-area::-webkit-scrollbar { width: 4px; }
-  .canais-area::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #00ff88, #00ccff); border-radius: 4px; }
+  .canais-area::-webkit-scrollbar-track { background: transparent; }
+  .canais-area::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #0088ff, #ff8c00);
+    border-radius: 4px;
+  }
   .canais-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
@@ -327,9 +365,9 @@ HTML_PAGINA = """
   }
   .canal-btn {
     position: relative;
-    background: rgba(0, 15, 30, 0.85);
-    border: 1.5px solid rgba(0, 204, 255, 0.4);
-    color: #00ff88;
+    background: rgba(0, 10, 25, 0.85);
+    border: 1.5px solid rgba(0, 136, 255, 0.45);
+    color: #ff8c00;
     padding: 12px 6px;
     border-radius: 8px;
     font-family: 'Orbitron', sans-serif;
@@ -337,7 +375,7 @@ HTML_PAGINA = """
     letter-spacing: 1.2px; text-transform: uppercase;
     cursor: pointer; transition: all 0.15s ease;
     text-align: center;
-    text-shadow: 0 0 8px rgba(0, 255, 136, 0.7);
+    text-shadow: 0 0 8px rgba(255, 140, 0, 0.8);
     user-select: none; touch-action: manipulation;
     overflow: hidden;
   }
@@ -346,46 +384,85 @@ HTML_PAGINA = """
     position: absolute;
     top: 0; left: -100%;
     width: 100%; height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(0, 255, 136, 0.3), transparent);
+    background: linear-gradient(90deg, transparent, rgba(0, 136, 255, 0.3), transparent);
     transition: left 0.5s;
   }
   .canal-btn:hover::before { left: 100%; }
   .canal-btn:hover, .canal-btn:active {
-    background: rgba(0, 102, 255, 0.25);
-    border-color: #00ff88; color: #fff;
-    box-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
+    background: rgba(0, 136, 255, 0.25);
+    border-color: #ff8c00;
+    color: #ffffff;
+    box-shadow:
+      0 0 20px rgba(255, 140, 0, 0.6),
+      0 0 40px rgba(0, 136, 255, 0.3);
   }
   .canal-btn.ativo {
-    background: linear-gradient(135deg, rgba(0, 102, 255, 0.5), rgba(0, 255, 136, 0.4));
-    border-color: #00ff88; color: #fff;
-    box-shadow: 0 0 25px rgba(0, 255, 136, 0.8);
+    background: linear-gradient(135deg, rgba(0, 136, 255, 0.5), rgba(255, 140, 0, 0.4));
+    border-color: #ff8c00;
+    color: #fff;
+    box-shadow:
+      0 0 25px rgba(255, 140, 0, 0.9),
+      0 0 50px rgba(0, 136, 255, 0.5);
     animation: ativo-pulsar 1.5s ease-in-out infinite;
   }
   @keyframes ativo-pulsar {
-    0%, 100% { box-shadow: 0 0 25px rgba(0, 255, 136, 0.8); }
-    50% { box-shadow: 0 0 35px rgba(0, 255, 136, 1), 0 0 60px rgba(0, 204, 255, 0.6); }
+    0%, 100% { box-shadow: 0 0 25px rgba(255, 140, 0, 0.9), 0 0 50px rgba(0, 136, 255, 0.5); }
+    50% { box-shadow: 0 0 35px rgba(255, 140, 0, 1), 0 0 70px rgba(0, 136, 255, 0.8); }
   }
+
+  /* ===== VIDEO.JS CUSTOM ===== */
   .video-js .vjs-big-play-button {
-    background: radial-gradient(circle, rgba(0, 255, 136, 0.95), rgba(0, 102, 255, 0.95));
-    border: 2px solid #00ff88; width: 60px; height: 60px; line-height: 56px;
-    border-radius: 50%; top: 50%; left: 50%;
+    background: radial-gradient(circle, rgba(0, 136, 255, 0.95), rgba(255, 140, 0, 0.95));
+    border: 2px solid #ff8c00;
+    width: 60px; height: 60px; line-height: 56px;
+    border-radius: 50%;
+    top: 50%; left: 50%;
     transform: translate(-50%, -50%);
-    box-shadow: 0 0 20px #00ff88, 0 0 40px rgba(0, 255, 136, 0.6);
+    box-shadow:
+      0 0 20px #ff8c00,
+      0 0 40px rgba(0, 136, 255, 0.7);
     animation: play-pulse 2s ease-in-out infinite;
   }
   @keyframes play-pulse {
-    0%, 100% { box-shadow: 0 0 20px #00ff88, 0 0 40px rgba(0, 255, 136, 0.6); }
-    50% { box-shadow: 0 0 30px #00ff88, 0 0 60px rgba(0, 255, 136, 0.9); }
+    0%, 100% { box-shadow: 0 0 20px #ff8c00, 0 0 40px rgba(0, 136, 255, 0.7); }
+    50% { box-shadow: 0 0 30px #ff8c00, 0 0 60px rgba(0, 136, 255, 1); }
+  }
+  .video-js .vjs-big-play-button:hover {
+    transform: translate(-50%, -50%) scale(1.1);
   }
   .video-js .vjs-control-bar {
-    background: linear-gradient(to top, rgba(0, 3, 8, 0.98), transparent);
+    background: linear-gradient(to top, rgba(0, 6, 14, 0.98), transparent);
     height: 40px;
-    border-top: 1px solid rgba(0, 255, 136, 0.15);
+    border-top: 1px solid rgba(0, 136, 255, 0.2);
   }
-  .video-js .vjs-play-progress { background: linear-gradient(90deg, #00ff88, #00ccff); }
-  .video-js .vjs-load-progress { background: rgba(0, 255, 136, 0.3); }
-  .video-js .vjs-slider { background: rgba(0, 204, 255, 0.25); }
-  .video-js .vjs-volume-level { background: #00ff88; }
+  .video-js .vjs-play-progress {
+    background: linear-gradient(90deg, #0088ff, #ff8c00);
+    box-shadow: 0 0 8px #ff8c00;
+  }
+  .video-js .vjs-load-progress { background: rgba(0, 136, 255, 0.3); }
+  .video-js .vjs-slider { background: rgba(255, 140, 0, 0.25); }
+  .video-js .vjs-volume-level {
+    background: #ff8c00;
+    box-shadow: 0 0 8px #ff8c00;
+  }
+  .video-js .vjs-play-control .vjs-icon-placeholder:before {
+    color: #ff8c00;
+    text-shadow: 0 0 10px #ff8c00;
+  }
+  .video-js .vjs-fullscreen-control .vjs-icon-placeholder:before {
+    color: #0088ff;
+    text-shadow: 0 0 10px #0088ff;
+  }
+  .video-js .vjs-volume-panel .vjs-icon-placeholder:before {
+    color: #0088ff;
+    text-shadow: 0 0 10px #0088ff;
+  }
+  .video-js .vjs-current-time,
+  .video-js .vjs-duration,
+  .video-js .vjs-remaining-time {
+    color: #ff8c00;
+    text-shadow: 0 0 8px rgba(255, 140, 0, 0.6);
+  }
 </style>
 </head>
 <body>
@@ -441,7 +518,6 @@ function marcarAtivo(el) {
   if (el) el.classList.add('ativo');
 }
 
-// 1 clique só
 document.getElementById('canais').addEventListener('click', function(e) {
   var alvo = e.target.closest('.canal-btn');
   if (!alvo) return;
@@ -457,7 +533,6 @@ document.getElementById('canais').addEventListener('click', function(e) {
   player.play().catch(function(){});
 });
 
-// Reconexão automática
 player.on('error', function() {
   setTimeout(function() {
     var s = player.src();
@@ -497,21 +572,16 @@ def index():
     return render_template_string(HTML_PAGINA, canais=CANAIS)
 
 
-def monitor():
-    while True:
-        os.system('clear || cls')
-        print("=" * 50)
-        print(f"  ✅ CANAL ATUAL:  {ULTIMO_CANAL}")
-        print(f"  ✅ DOMÍNIO:      {DOMINIO_ATUAL}")
-        print(f"  🔗 PLAYLIST:     {obter_ip_rede()}/playlist")
-        print(f"  🌐 LOCAL:        http://localhost:8888")
-        print("=" * 50)
-        time.sleep(2)
-
-
 if __name__ == '__main__':
-    subprocess.run("fuser -k 8888/tcp > /dev/null 2>&1", shell=True)
-    time.sleep(1)
-
-    def rodar():
-        app.run(host='0.0.0.0', port=8888, threaded=True, use_reloader=False)
+    import logging as _l
+    _l.getLogger('werkzeug').disabled = True
+    _l.getLogger('flask').disabled = True
+    from werkzeug.serving import WSGIRequestHandler
+    WSGIRequestHandler.log = lambda self, type, msg, *args: None
+    print("=" * 50)
+    print("       MARCOS TV - PROXY")
+    print("=" * 50)
+    print(f"  Porta: {PORTA}")
+    print(f"  Local: http://localhost:{PORTA}")
+    print("=" * 50)
+    app.run(host='0.0.0.0', port=PORTA, threaded=True, debug=False, use_reloader=False)
