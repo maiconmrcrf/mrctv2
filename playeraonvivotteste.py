@@ -31,12 +31,7 @@ TS_CACHE_LOCK = threading.Lock()
 TS_CACHE_MAX = 500
 TS_CACHE_TEMPO = 90
 
-# ====== CANAIS MPEG-TS DIRETOS ======
-CANAIS_MPEGTS = {
-    "premiere1": "http://79.127.238.228:14157/",
-    "warner":    "http://79.127.238.228:14647/",
-}
-
+# ====== CANAIS HLS (passam pelo proxy) ======
 CANAIS_FIXOS = [
     "espn",
     "premiere1",
@@ -47,6 +42,12 @@ CANAIS_FIXOS = [
     "space",
     "warner",
 ]
+
+# ====== CANAIS MPEG-TS (tocam direto com mpegts.js) ======
+CANAIS_MPEGTS = {
+    "premiere1": "http://79.127.238.228:14157/",
+    "warner":    "http://79.127.238.228:14647/",
+}
 
 def criar_sessao(imp=None):
     if USE_CURL:
@@ -336,6 +337,7 @@ var videoMpegEl = document.getElementById('player_mpeg');
 var playerMpeg = null;
 var modoMpeg = false;
 
+// ===== CANAIS MPEG-TS (vem do backend) =====
 var CANAIS_MPEGTS = {{ canais_mpegts_json|safe }};
 var PAGINA_HTTPS = (location.protocol === 'https:');
 
@@ -355,7 +357,9 @@ function pararMpeg() {
   modoMpeg = false;
 }
 
-// ===== TOCA MPEG-TS DIRETO =====
+// ===== TOCA MPEG-TS =====
+// Em HTTP: usa URL direta (funciona 100%)
+// Em HTTPS: usa proxy do Flask (fallback — pode cortar no Render)
 function tocarMpegTs(canal) {
   pararMpeg();
   player.pause();
@@ -364,8 +368,6 @@ function tocarMpegTs(canal) {
   videoMpegEl.style.display = 'block';
   modoMpeg = true;
 
-  // Se a página for HTTP → usa direto
-  // Se for HTTPS → cai no proxy (pro navegador não bloquear)
   var url;
   if (PAGINA_HTTPS) {
     url = '/mpegts_proxy?canal=' + encodeURIComponent(canal);
@@ -506,7 +508,7 @@ def play(canal):
         'Cache-Control': 'no-cache'
     })
 
-# ============ PROXY MPEG-TS (só usado se HTTPS) ============
+# ============ PROXY MPEG-TS (só usado em HTTPS) ============
 @app.route('/mpegts_proxy')
 def mpegts_proxy():
     canal = (request.args.get('canal') or '').strip().lower()
