@@ -31,6 +31,12 @@ TS_CACHE_LOCK = threading.Lock()
 TS_CACHE_MAX = 500
 TS_CACHE_TEMPO = 90
 
+# ====== CANAIS DIRETOS (não passam pelo proxy) ======
+CANAIS_DIRETOS = {
+    "premiereclubes": "http://79.127.238.228:14157/",
+    "warner":         "http://79.127.238.228:14647/",
+}
+
 # ====== CANAIS FIXOS NA INTERFACE ======
 CANAIS_FIXOS = [
     "espn",
@@ -40,6 +46,7 @@ CANAIS_FIXOS = [
     "telecinefun",
     "telecinepremium",
     "space",
+    "warner",
 ]
 
 def criar_sessao(imp=None):
@@ -70,7 +77,6 @@ def obter_headers(canal):
     }
 
 def buscar_m3u8(canal):
-    """Baixa o m3u8 do canal. Retorna (resp, url) ou (None, None)."""
     url = montar_url(canal)
     h = obter_headers(canal)
     sess = criar_sessao("firefox133")
@@ -83,7 +89,6 @@ def buscar_m3u8(canal):
     return None, None
 
 def buscar_segmento(url_segmento, canal):
-    """Baixa um .ts do canal. Timeout curto + 2 tentativas."""
     with TS_CACHE_LOCK:
         item = TS_CACHE.get(url_segmento)
         if item:
@@ -132,14 +137,8 @@ HTML_PAGINA = '''
     justify-content: center;
     padding: 20px;
   }
-  .app {
-    width: 100%;
-    max-width: 900px;
-  }
-  .brand {
-    text-align: center;
-    margin-bottom: 28px;
-  }
+  .app { width: 100%; max-width: 900px; }
+  .brand { text-align: center; margin-bottom: 28px; }
   .brand h1 {
     font-size: clamp(2.2em, 8vw, 3.5em);
     font-weight: 900;
@@ -230,7 +229,6 @@ HTML_PAGINA = '''
     transform: none;
   }
 
-  /* ===== CANAIS FIXOS NEON ===== */
   .canais-fixos {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
@@ -343,6 +341,9 @@ var statusEl = document.getElementById('status');
 var btn = document.getElementById('btnPlay');
 var input = document.getElementById('canal');
 
+// ===== CANAIS DIRETOS (vem do backend) =====
+var CANAIS_DIRETOS = {{ canais_diretos_json|safe }};
+
 function setStatus(msg, tipo) {
   statusEl.className = 'status' + (tipo ? ' ' + tipo : '');
   statusEl.innerText = msg || '';
@@ -366,6 +367,16 @@ function tocar() {
     input.focus();
     return;
   }
+
+  // ===== CANAL DIRETO: toca sem passar pelo proxy =====
+  if (CANAIS_DIRETOS[canal]) {
+    setStatus('Abrindo ' + canal + ' (direto)...', 'ok');
+    player.src({ src: CANAIS_DIRETOS[canal], type: 'application/x-mpegURL' });
+    player.play().catch(function(e){ setStatus('Erro: ' + e.message, 'err'); });
+    return;
+  }
+
+  // ===== CANAL NORMAL: passa pelo proxy =====
   setStatus('Carregando ' + canal + '...');
   btn.disabled = true;
 
@@ -400,7 +411,6 @@ player.on('error', function() {
   setTimeout(recarregar, 1000);
 });
 
-// ===== DETECTA TRAVAMENTO (sem progresso por 10s) =====
 var ultimoTempo = 0;
 var travadoDesde = null;
 setInterval(function() {
@@ -435,7 +445,11 @@ def cors(r):
 
 @app.route('/')
 def index():
-    return render_template_string(HTML_PAGINA, canais=CANAIS_FIXOS)
+    return render_template_string(
+        HTML_PAGINA,
+        canais=CANAIS_FIXOS,
+        canais_diretos_json=json.dumps(CANAIS_DIRETOS)
+    )
 
 @app.route('/testar/<canal>')
 def testar(canal):
