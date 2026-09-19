@@ -1,6 +1,6 @@
 import os, re, json, time, threading
 import urllib3
-from flask import Flask, Response, request, render_template_string, jsonify
+from flask import Flask, Response, request, render_template_string
 from urllib.parse import urljoin, quote, unquote
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -15,130 +15,93 @@ except ImportError:
 app = Flask(__name__)
 PORTA = int(os.environ.get("PORT", 10000))
 
-# ==========================================================
-# 3 TEMPLATES FIXOS
-# ==========================================================
-TEMPLATES = [
-    {
-        "nome": "cdn13embed",
-        "url": "https://ywppjexvlyulasvmgzjdftfjikth1709oq80soveui6lkbi2iza2zf.cdn13embed.xyz/{canal}/index.m3u8",
-        "user_agent": "Mozilla/5.0 (Android 15; Mobile; rv:155.0) Gecko/155.0 Firefox/155.0",
-        "cookie": "__dtsu=51A017746968408D2A64C9BB119F7C31; _ga=GA1.1.82788829.1788834221; _ga_2T9N2RHEW3=GS2.1.s1789787692$o8$g0$t1789787692$j60$l0$h0",
-        "origin": "https://1709.cdnembedcanais.xyz",
-        "referer": "https://1709.cdnembedcanais.xyz/{canal}/",
-        "extra_headers": {}
-    },
-    {
-        "nome": "ssl-images-cdn",
-        "url": "https://za260pb3a281.ssl-images-cdn.site/live/secure/Y268yrAOpISOsm-I2QK6YhusYCGFnsLqG4xL1QWLlfE/1789809883/d58366a60d35086a/{canal}/index.m3u8",
-        "user_agent": "Mozilla/5.0 (Android 15; Mobile; rv:155.0) Gecko/155.0 Firefox/155.0",
-        "cookie": "sid=d58366a60d35086a",
-        "origin": "https://player.cdn-img.st",
-        "referer": "https://player.cdn-img.st/{canal}.html",
-        "extra_headers": {}
-    },
-    {
-        "nome": "f8umt2oop68t",
-        "url": "https://f8umt2oop68t.sbs/live/secure/oHEwnKLrH-OwU22w3Y26wZ8n0Ay9sNR5ZsH59KBTpOM/1789809844/d6c96ae763d80960/{canal}/index.m3u8",
-        "user_agent": "Mozilla/5.0 (Android 15; Mobile; rv:155.0) Gecko/155.0 Firefox/155.0",
-        "cookie": "bitmovin_analytics_uuid=a07b3c21-c8bc-4692-8761-53ffa4df341f",
-        "origin": "https://bolodechocolate.fit",
-        "referer": "https://bolodechocolate.fit/play/{canal}.html",
-        "extra_headers": {}
-    },
-]
+URL_PUBLICA = os.environ.get("URL_PUBLICA", "")
 
-# ==========================================================
+def url_base():
+    if URL_PUBLICA:
+        return URL_PUBLICA.rstrip("/")
+    return request.host_url.rstrip("/")
+
+USER_AGENT = "Mozilla/5.0 (Android 15; Mobile; rv:155.0) Gecko/155.0 Firefox/155.0"
+COOKIE_FIXO = "bitmovin_analytics_uuid=a07b3c21-c8bc-4692-8761-53ffa4df341f"
+ORIGIN_FIXO = "https://bolodechocolate.fit"
 
 TS_CACHE = {}
 TS_CACHE_LOCK = threading.Lock()
 TS_CACHE_MAX = 500
 TS_CACHE_TEMPO = 90
 
-TEMPLATE_USADO = {}
-TEMPLATE_USADO_LOCK = threading.Lock()
+# ====== CANAIS FIXOS NA INTERFACE ======
+CANAIS_FIXOS = [
+    "espn",
+    "premiereclubes",
+    "tnt",
+    "telecinepipoca",
+    "telecinefun",
+    "telecinepremium",
+    "space",
+]
 
-def criar_sessao():
+def criar_sessao(imp=None):
     if USE_CURL:
         try:
-            return ImpersonateSession.Session(impersonate="firefox133")
+            return ImpersonateSession.Session(impersonate=imp or "firefox133")
         except Exception:
             pass
     return ImpersonateSession.Session()
 
-def montar_url(canal, tpl):
-    return tpl["url"].replace("{canal}", canal)
+def montar_url(canal):
+    canal = canal.strip().lower()
+    return f"https://f8umt2oop68t.sbs/live/secure/pHGsJJgoEUBc-K5ACe7Hws--gF0WDhHii_3tGSGwoq4/1789760848/1d256d1fe0127694/{canal}/index.m3u8"
 
-def montar_referer(canal, tpl):
-    ref = tpl.get("referer", "") or ""
-    return ref.replace("{canal}", canal) if ref else ""
+def montar_referer(canal):
+    canal = canal.strip().lower()
+    return f"{ORIGIN_FIXO}/play/{canal}.html"
 
-def obter_headers(canal, tpl):
-    h = {
-        "User-Agent": tpl.get("user_agent") or "Mozilla/5.0",
+def obter_headers(canal):
+    return {
+        "User-Agent": USER_AGENT,
         "Accept": "*/*",
         "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+        "Origin": ORIGIN_FIXO,
+        "Referer": montar_referer(canal),
+        "Cookie": COOKIE_FIXO,
         "Connection": "keep-alive",
     }
-    if tpl.get("origin"):
-        h["Origin"] = tpl["origin"]
-    ref = montar_referer(canal, tpl)
-    if ref:
-        h["Referer"] = ref
-    if tpl.get("cookie"):
-        h["Cookie"] = tpl["cookie"]
-    extras = tpl.get("extra_headers") or {}
-    if isinstance(extras, dict):
-        for k, v in extras.items():
-            if k and v:
-                h[str(k)] = str(v)
-    return h
 
 def buscar_m3u8(canal):
-    for tpl in TEMPLATES:
-        url = montar_url(canal, tpl)
-        h = obter_headers(canal, tpl)
-        sess = criar_sessao()
-        try:
-            r = sess.get(url, headers=h, timeout=12, verify=False)
-            if r.status_code == 200 and ("#EXTM3U" in r.text or "#EXT-X" in r.text):
-                with TEMPLATE_USADO_LOCK:
-                    TEMPLATE_USADO[canal] = tpl["nome"]
-                return r, url, tpl
-        except Exception:
-            continue
-    return None, None, None
+    """Baixa o m3u8 do canal. Retorna (resp, url) ou (None, None)."""
+    url = montar_url(canal)
+    h = obter_headers(canal)
+    sess = criar_sessao("firefox133")
+    try:
+        r = sess.get(url, headers=h, timeout=15, verify=False)
+        if r.status_code == 200 and ("#EXTM3U" in r.text or "#EXT-X" in r.text):
+            return r, url
+    except Exception:
+        pass
+    return None, None
 
-def buscar_segmento(url_seg, canal):
+def buscar_segmento(url_segmento, canal):
+    """Baixa um .ts do canal. Timeout curto + 2 tentativas."""
     with TS_CACHE_LOCK:
-        item = TS_CACHE.get(url_seg)
+        item = TS_CACHE.get(url_segmento)
         if item:
             dados, t = item
             if time.time() - t < TS_CACHE_TEMPO:
                 return dados, 200
 
-    with TEMPLATE_USADO_LOCK:
-        nome_tpl = TEMPLATE_USADO.get(canal)
-
-    tpl = None
-    for t in TEMPLATES:
-        if t["nome"] == nome_tpl:
-            tpl = t
-            break
-    if not tpl:
-        tpl = TEMPLATES[0]
-
-    h = obter_headers(canal, tpl)
+    h = obter_headers(canal)
     for tent in range(2):
-        sess = criar_sessao()
+        sess = criar_sessao("firefox133")
         try:
-            r = sess.get(url_seg, headers=h, timeout=8, verify=False)
+            r = sess.get(url_segmento, headers=h, timeout=8, verify=False)
             if r.status_code == 200:
                 with TS_CACHE_LOCK:
                     if len(TS_CACHE) >= TS_CACHE_MAX:
                         mais = min(TS_CACHE.items(), key=lambda kv: kv[1][1])
                         del TS_CACHE[mais[0]]
-                    TS_CACHE[url_seg] = (r.content, time.time())
+                    TS_CACHE[url_segmento] = (r.content, time.time())
                 return r.content, 200
             if r.status_code in (403, 404):
                 return None, r.status_code
@@ -146,7 +109,8 @@ def buscar_segmento(url_seg, canal):
             pass
     return None, 502
 
-HTML_PAGINA = """
+# ============ HTML ============
+HTML_PAGINA = '''
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -154,13 +118,13 @@ HTML_PAGINA = """
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MARCOS TV</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
-<link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet">
+<link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet" />
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
   body {
     font-family: 'Inter', -apple-system, Arial, sans-serif;
-    background: #000;
+    background: radial-gradient(ellipse at top, #1a1a2e 0%, #0a0a0f 60%);
     color: #fff;
     min-height: 100vh;
     display: flex;
@@ -168,108 +132,160 @@ HTML_PAGINA = """
     justify-content: center;
     padding: 20px;
   }
-  .app { width: 100%; max-width: 900px; }
-  .brand { text-align: center; margin-bottom: 30px; }
+  .app {
+    width: 100%;
+    max-width: 900px;
+  }
+  .brand {
+    text-align: center;
+    margin-bottom: 28px;
+  }
   .brand h1 {
-    font-size: clamp(2.4em, 9vw, 4em);
+    font-size: clamp(2.2em, 8vw, 3.5em);
     font-weight: 900;
-    letter-spacing: 4px;
-    color: #fff;
+    letter-spacing: 2px;
+    background: linear-gradient(135deg, #ffffff 0%, #a29bfe 50%, #6c5ce7 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
     margin-bottom: 6px;
+    text-shadow: 0 0 40px rgba(108, 92, 231, 0.3);
   }
   .brand .sub {
-    color: #666;
-    font-size: 0.72em;
-    letter-spacing: 6px;
-    font-weight: 500;
+    color: #6c5ce7;
+    font-size: 0.75em;
+    letter-spacing: 4px;
+    font-weight: 600;
     text-transform: uppercase;
+    opacity: 0.8;
   }
-  .header-line {
-    width: 60px; height: 2px;
-    background: #fff;
-    margin: 16px auto 0;
-    opacity: 0.3;
-  }
-  .player-wrap {
-    background: #0a0a0a;
-    border: 1px solid #1a1a1a;
-    border-radius: 16px;
-    padding: 14px;
-    margin-bottom: 16px;
+  .player-card {
+    background: rgba(20, 20, 31, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(108, 92, 231, 0.25);
+    border-radius: 20px;
+    padding: 18px;
+    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6), 0 0 80px rgba(108, 92, 231, 0.1);
+    margin-bottom: 18px;
   }
   .video-js {
     width: 100%;
-    height: 440px;
-    border-radius: 10px;
+    height: 420px;
+    border-radius: 14px;
     overflow: hidden;
     background: #000;
   }
-  @media (max-width: 640px) { .video-js { height: 240px; } }
-  .controls { display: flex; gap: 10px; flex-wrap: wrap; }
+  @media (max-width: 640px) { .video-js { height: 220px; } }
+  .controls {
+    display: flex;
+    gap: 10px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+  }
   .controls input {
     flex: 1;
-    min-width: 180px;
-    background: #0a0a0a;
-    border: 1.5px solid #222;
+    min-width: 160px;
+    background: rgba(13, 13, 20, 0.9);
+    border: 1.5px solid rgba(108, 92, 231, 0.3);
     color: #fff;
-    padding: 16px 18px;
+    padding: 14px 16px;
     border-radius: 12px;
     font-family: 'Inter', sans-serif;
     font-size: 1em;
     font-weight: 500;
     outline: none;
-    transition: border-color 0.2s;
+    transition: all 0.2s;
   }
-  .controls input:focus { border-color: #fff; }
-  .controls input::placeholder { color: #555; font-weight: 400; }
+  .controls input:focus {
+    border-color: #6c5ce7;
+    box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.15);
+  }
+  .controls input::placeholder { color: #555; }
   .controls button {
-    background: #fff;
-    color: #000;
+    background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%);
+    color: #fff;
     border: none;
-    padding: 16px 36px;
+    padding: 14px 28px;
     border-radius: 12px;
     font-family: 'Inter', sans-serif;
     font-weight: 700;
     font-size: 1em;
-    letter-spacing: 1.5px;
+    letter-spacing: 0.5px;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.2s;
+    box-shadow: 0 8px 20px rgba(108, 92, 231, 0.35);
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
   .controls button:hover {
-    background: #e5e5e5;
-    transform: translateY(-1px);
+    transform: translateY(-2px);
+    box-shadow: 0 12px 28px rgba(108, 92, 231, 0.5);
   }
   .controls button:active { transform: translateY(0); }
-  .controls button:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+  .controls button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  /* ===== CANAIS FIXOS NEON ===== */
+  .canais-fixos {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .canal-btn {
+    background: rgba(20, 20, 31, 0.7);
+    border: 1.5px solid rgba(108, 92, 231, 0.4);
+    color: #a29bfe;
+    padding: 14px 8px;
+    border-radius: 12px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 700;
+    font-size: 0.8em;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+    text-shadow: 0 0 10px rgba(162, 155, 254, 0.6);
+  }
+  .canal-btn:hover {
+    background: rgba(108, 92, 231, 0.15);
+    border-color: #a29bfe;
+    color: #fff;
+    text-shadow: 0 0 16px rgba(162, 155, 254, 1);
+    box-shadow: 0 0 25px rgba(108, 92, 231, 0.4);
+    transform: translateY(-2px);
+  }
+  .canal-btn:active { transform: translateY(0); }
+  .canal-btn.ativo {
+    background: linear-gradient(135deg, rgba(108, 92, 231, 0.35), rgba(162, 155, 254, 0.35));
+    border-color: #a29bfe;
+    color: #fff;
+    box-shadow: 0 0 30px rgba(108, 92, 231, 0.6);
+  }
+
+  .status {
+    text-align: center;
+    margin-top: 14px;
+    font-size: 0.85em;
+    color: #888;
+    min-height: 20px;
+    font-weight: 500;
+  }
+  .status.ok { color: #00b894; }
+  .status.err { color: #e74c3c; }
   .footer {
     text-align: center;
-    color: #333;
-    font-size: 0.7em;
-    letter-spacing: 2px;
-    margin-top: 22px;
+    color: #444;
+    font-size: 0.75em;
+    letter-spacing: 1px;
+    margin-top: 20px;
   }
-  .video-js .vjs-big-play-button {
-    background: rgba(255, 255, 255, 0.95);
-    border: none;
-    width: 80px; height: 80px; line-height: 80px;
-    border-radius: 50%;
-    top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
-  }
-  .video-js .vjs-big-play-button .vjs-icon-placeholder:before {
-    color: #000; font-size: 2em; line-height: 80px;
-  }
-  .video-js .vjs-big-play-button:hover {
-    background: #fff;
-    transform: translate(-50%, -50%) scale(1.08);
-  }
-  .video-js .vjs-control-bar {
-    background: rgba(0, 0, 0, 0.85);
-    height: 46px;
-  }
-  .video-js .vjs-play-progress { background: #fff; }
-  .video-js .vjs-load-progress { background: rgba(255,255,255,0.2); }
-  .video-js .vjs-slider { background: rgba(255,255,255,0.15); }
 </style>
 </head>
 <body>
@@ -277,16 +293,26 @@ HTML_PAGINA = """
     <div class="brand">
       <h1>MARCOS TV</h1>
       <div class="sub">Premium Streaming</div>
-      <div class="header-line"></div>
     </div>
 
-    <div class="player-wrap">
+    <div class="player-card">
       <video id="player" class="video-js" controls playsinline preload="auto"></video>
-    </div>
 
-    <div class="controls">
-      <input id="canal" type="text" placeholder="Digite o nome do canal" autocomplete="off" spellcheck="false">
-      <button id="btnPlay" onclick="tocar()">PLAY</button>
+      <div class="canais-fixos">
+        {% for c in canais %}
+        <div class="canal-btn" data-canal="{{ c }}" onclick="tocarFixo('{{ c }}', this)">{{ c }}</div>
+        {% endfor %}
+      </div>
+
+      <div class="controls">
+        <input id="canal" type="text" placeholder="Nome do canal (ex: discoveryturbo)" autocomplete="off">
+        <button id="btnPlay" onclick="tocar()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          PLAY
+        </button>
+      </div>
+
+      <div class="status" id="status"></div>
     </div>
 
     <div class="footer">© MARCOS TV</div>
@@ -313,45 +339,68 @@ var player = videojs('player', {
     }
   }
 });
+var statusEl = document.getElementById('status');
 var btn = document.getElementById('btnPlay');
 var input = document.getElementById('canal');
 
+function setStatus(msg, tipo) {
+  statusEl.className = 'status' + (tipo ? ' ' + tipo : '');
+  statusEl.innerText = msg || '';
+}
+
+function marcarAtivo(el) {
+  document.querySelectorAll('.canal-btn').forEach(function(b){ b.classList.remove('ativo'); });
+  if (el) el.classList.add('ativo');
+}
+
+function tocarFixo(canal, el) {
+  marcarAtivo(el);
+  input.value = canal;
+  tocar();
+}
+
 function tocar() {
   var canal = input.value.trim().toLowerCase();
-  if (!canal) { input.focus(); return; }
+  if (!canal) {
+    setStatus('Digite o nome do canal', 'err');
+    input.focus();
+    return;
+  }
+  setStatus('Carregando ' + canal + '...');
   btn.disabled = true;
-
-  var t = setTimeout(function(){ btn.disabled = false; }, 20000);
 
   fetch('/testar/' + encodeURIComponent(canal))
     .then(r => r.json())
     .then(d => {
-      clearTimeout(t);
       btn.disabled = false;
       if (d.ok) {
+        setStatus('Tocando: ' + canal, 'ok');
         player.src({ src: '/play/' + encodeURIComponent(canal) + '?t=' + Date.now(), type: 'application/x-mpegURL' });
-        player.play().catch(function(){});
+        player.play().catch(function(e){ setStatus('Erro: ' + e.message, 'err'); });
+      } else {
+        setStatus(d.msg || 'Canal nao encontrado', 'err');
       }
     })
-    .catch(function() {
-      clearTimeout(t);
+    .catch(e => {
       btn.disabled = false;
+      setStatus('Erro: ' + e.message, 'err');
     });
 }
 
-// Reconexao automatica
+// ===== RECONEXAO AUTOMATICA =====
+function recarregar() {
+  var s = player.src();
+  if (!s || s.indexOf('/play/') === -1) return;
+  var canal = s.split('/play/')[1].split('?')[0];
+  player.src({ src: '/play/' + canal + '?t=' + Date.now(), type: 'application/x-mpegURL' });
+  player.play().catch(function(){});
+}
+
 player.on('error', function() {
-  setTimeout(function() {
-    var s = player.src();
-    if (s && s.indexOf('/play/') !== -1) {
-      var c = s.split('/play/')[1].split('?')[0];
-      player.src({ src: '/play/' + c + '?t=' + Date.now(), type: 'application/x-mpegURL' });
-      player.play().catch(function(){});
-    }
-  }, 1500);
+  setTimeout(recarregar, 1000);
 });
 
-// Detecta travamento (10s sem progresso)
+// ===== DETECTA TRAVAMENTO (sem progresso por 10s) =====
 var ultimoTempo = 0;
 var travadoDesde = null;
 setInterval(function() {
@@ -361,22 +410,23 @@ setInterval(function() {
     if (!travadoDesde) travadoDesde = Date.now();
     else if (Date.now() - travadoDesde > 10000) {
       travadoDesde = null;
-      var s = player.src();
-      if (s && s.indexOf('/play/') !== -1) {
-        var c = s.split('/play/')[1].split('?')[0];
-        player.src({ src: '/play/' + c + '?t=' + Date.now(), type: 'application/x-mpegURL' });
-        player.play().catch(function(){});
-      }
+      recarregar();
     }
-  } else { ultimoTempo = t; travadoDesde = null; }
+  } else {
+    ultimoTempo = t;
+    travadoDesde = null;
+  }
 }, 2000);
 
-input.addEventListener('keydown', function(e) { if (e.key === 'Enter') tocar(); });
+input.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') tocar();
+});
 </script>
 </body>
 </html>
-"""
+'''
 
+# ============ ROTAS ============
 @app.after_request
 def cors(r):
     r.headers['Access-Control-Allow-Origin'] = '*'
@@ -385,17 +435,17 @@ def cors(r):
 
 @app.route('/')
 def index():
-    return render_template_string(HTML_PAGINA)
+    return render_template_string(HTML_PAGINA, canais=CANAIS_FIXOS)
 
 @app.route('/testar/<canal>')
 def testar(canal):
     canal = canal.strip().lower()
     if not re.match(r'^[a-z0-9_\-]+$', canal):
-        return jsonify({"ok": False, "msg": "Nome invalido"})
-    r, _, tpl = buscar_m3u8(canal)
+        return {"ok": False, "msg": "Nome invalido"}
+    r, _ = buscar_m3u8(canal)
     if r:
-        return jsonify({"ok": True, "fonte": tpl["nome"]})
-    return jsonify({"ok": False, "msg": "Canal indisponivel"})
+        return {"ok": True}
+    return {"ok": False, "msg": "Canal '" + canal + "' indisponivel"}
 
 @app.route('/play/<canal>')
 def play(canal):
@@ -403,7 +453,7 @@ def play(canal):
     if not re.match(r'^[a-z0-9_\-]+$', canal):
         return "Nome invalido", 400
 
-    r, url_orig, tpl = buscar_m3u8(canal)
+    r, url_orig = buscar_m3u8(canal)
     if not r:
         return "Canal nao encontrado", 404
 
@@ -431,18 +481,8 @@ def proxy_m3u8():
     if not target or not canal:
         return "Faltam parametros", 400
 
-    with TEMPLATE_USADO_LOCK:
-        nome_tpl = TEMPLATE_USADO.get(canal)
-    tpl = None
-    for t in TEMPLATES:
-        if t["nome"] == nome_tpl:
-            tpl = t
-            break
-    if not tpl:
-        tpl = TEMPLATES[0]
-
-    h = obter_headers(canal, tpl)
-    sess = criar_sessao()
+    h = obter_headers(canal)
+    sess = criar_sessao("firefox133")
     try:
         r = sess.get(target, headers=h, timeout=12, verify=False)
         if r.status_code != 200:
