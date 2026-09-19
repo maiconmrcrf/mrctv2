@@ -31,13 +31,12 @@ TS_CACHE_LOCK = threading.Lock()
 TS_CACHE_MAX = 500
 TS_CACHE_TEMPO = 90
 
-# ====== CANAIS MPEG-TS DIRETOS (tocados via mpegts.js) ======
+# ====== CANAIS MPEG-TS (passam pelo proxy do Render) ======
 CANAIS_MPEGTS = {
     "premiere1": "http://79.127.238.228:14157/",
     "warner":    "http://79.127.238.228:14647/",
 }
 
-# ====== CANAIS FIXOS NA INTERFACE ======
 CANAIS_FIXOS = [
     "espn",
     "premiere1",
@@ -268,16 +267,6 @@ HTML_PAGINA = '''
     box-shadow: 0 0 30px rgba(108, 92, 231, 0.6);
   }
 
-  .status {
-    text-align: center;
-    margin-top: 14px;
-    font-size: 0.85em;
-    color: #888;
-    min-height: 20px;
-    font-weight: 500;
-  }
-  .status.ok { color: #00b894; }
-  .status.err { color: #e74c3c; }
   .footer {
     text-align: center;
     color: #444;
@@ -311,8 +300,6 @@ HTML_PAGINA = '''
           PLAY
         </button>
       </div>
-
-      <div class="status" id="status"></div>
     </div>
 
     <div class="footer">© MARCOS TV</div>
@@ -340,32 +327,23 @@ var player = videojs('player', {
     }
   }
 });
-var statusEl = document.getElementById('status');
 var btn = document.getElementById('btnPlay');
 var input = document.getElementById('canal');
 
-// Elementos
 var videoJsEl = document.getElementById('player');
 var videoMpegEl = document.getElementById('player_mpeg');
 
-// Estado do mpegts
 var playerMpeg = null;
 var modoMpeg = false;
 
 // ===== CANAIS MPEG-TS (vem do backend) =====
 var CANAIS_MPEGTS = {{ canais_mpegts_json|safe }};
 
-function setStatus(msg, tipo) {
-  statusEl.className = 'status' + (tipo ? ' ' + tipo : '');
-  statusEl.innerText = msg || '';
-}
-
 function marcarAtivo(el) {
   document.querySelectorAll('.canal-btn').forEach(function(b){ b.classList.remove('ativo'); });
   if (el) el.classList.add('ativo');
 }
 
-// ===== PARAR MPEGTS =====
 function pararMpeg() {
   if (playerMpeg) {
     try { playerMpeg.pause(); } catch(e){}
@@ -377,15 +355,17 @@ function pararMpeg() {
   modoMpeg = false;
 }
 
-// ===== TOCAR MPEG-TS (stream direto) =====
-function tocarMpegTs(url) {
+// ===== TOCA MPEG-TS PASSANDO PELO PROXY DO RENDER (HTTPS) =====
+function tocarMpegTs(canal) {
   pararMpeg();
   player.pause();
 
-  // Esconde Video.js, mostra o video puro
   videoJsEl.style.display = 'none';
   videoMpegEl.style.display = 'block';
   modoMpeg = true;
+
+  // Usa o proxy do Render (HTTPS) — o servidor baixa do IPTV e repassa
+  var url = '/mpegts_proxy?canal=' + encodeURIComponent(canal);
 
   try {
     playerMpeg = mpegts.createPlayer({
@@ -404,26 +384,18 @@ function tocarMpegTs(url) {
     playerMpeg.attachMediaElement(videoMpegEl);
     playerMpeg.load();
 
-    var playPromise = playerMpeg.play();
-    if (playPromise && playPromise.catch) {
-      playPromise.catch(function(e){ setStatus('Erro ao tocar: ' + e.message, 'err'); });
-    }
-
-    setStatus('Tocando (MPEG-TS): ' + url, 'ok');
-  } catch (e) {
-    setStatus('Erro MPEG-TS: ' + e.message, 'err');
-  }
+    var p = playerMpeg.play();
+    if (p && p.catch) p.catch(function(){});
+  } catch (e) {}
 }
 
-// ===== TOCAR HLS (Video.js normal) =====
 function tocarHls(canal) {
   pararMpeg();
-  // Mostra Video.js, esconde o video puro
   videoMpegEl.style.display = 'none';
   videoJsEl.style.display = 'block';
 
   player.src({ src: '/play/' + encodeURIComponent(canal) + '?t=' + Date.now(), type: 'application/x-mpegURL' });
-  player.play().catch(function(e){ setStatus('Erro: ' + e.message, 'err'); });
+  player.play().catch(function(){});
 }
 
 function tocarFixo(canal, el) {
@@ -434,41 +406,21 @@ function tocarFixo(canal, el) {
 
 function tocar() {
   var canal = input.value.trim().toLowerCase();
-  if (!canal) {
-    setStatus('Digite o nome do canal', 'err');
-    input.focus();
-    return;
-  }
+  if (!canal) { input.focus(); return; }
 
-  // ===== CANAL MPEG-TS: toca direto com mpegts.js =====
   if (CANAIS_MPEGTS[canal]) {
-    setStatus('Abrindo ' + canal + ' (MPEG-TS)...', 'ok');
-    tocarMpegTs(CANAIS_MPEGTS[canal]);
+    tocarMpegTs(canal);
     return;
   }
-
-  // ===== CANAL NORMAL: passa pelo proxy HLS =====
-  setStatus('Carregando ' + canal + '...');
-  btn.disabled = true;
 
   fetch('/testar/' + encodeURIComponent(canal))
     .then(r => r.json())
     .then(d => {
-      btn.disabled = false;
-      if (d.ok) {
-        setStatus('Tocando: ' + canal, 'ok');
-        tocarHls(canal);
-      } else {
-        setStatus(d.msg || 'Canal nao encontrado', 'err');
-      }
+      if (d.ok) tocarHls(canal);
     })
-    .catch(e => {
-      btn.disabled = false;
-      setStatus('Erro: ' + e.message, 'err');
-    });
+    .catch(function(){});
 }
 
-// ===== RECONEXAO AUTOMATICA (só HLS) =====
 function recarregar() {
   if (modoMpeg) return;
   var s = player.src();
@@ -478,31 +430,21 @@ function recarregar() {
   player.play().catch(function(){});
 }
 
-player.on('error', function() {
-  setTimeout(recarregar, 1000);
-});
+player.on('error', function() { setTimeout(recarregar, 1000); });
 
 var ultimoTempo = 0;
 var travadoDesde = null;
 setInterval(function() {
-  if (modoMpeg) return; // não checa travamento no mpegts
+  if (modoMpeg) return;
   if (player.paused() || player.readyState() < 2) { travadoDesde = null; return; }
   var t = player.currentTime();
   if (t === ultimoTempo) {
     if (!travadoDesde) travadoDesde = Date.now();
-    else if (Date.now() - travadoDesde > 10000) {
-      travadoDesde = null;
-      recarregar();
-    }
-  } else {
-    ultimoTempo = t;
-    travadoDesde = null;
-  }
+    else if (Date.now() - travadoDesde > 10000) { travadoDesde = null; recarregar(); }
+  } else { ultimoTempo = t; travadoDesde = null; }
 }, 2000);
 
-input.addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') tocar();
-});
+input.addEventListener('keydown', function(e) { if (e.key === 'Enter') tocar(); });
 </script>
 </body>
 </html>
@@ -527,11 +469,9 @@ def index():
 def testar(canal):
     canal = canal.strip().lower()
     if not re.match(r'^[a-z0-9_\-]+$', canal):
-        return {"ok": False, "msg": "Nome invalido"}
+        return {"ok": False}
     r, _ = buscar_m3u8(canal)
-    if r:
-        return {"ok": True}
-    return {"ok": False, "msg": "Canal '" + canal + "' indisponivel"}
+    return {"ok": bool(r)}
 
 @app.route('/play/<canal>')
 def play(canal):
@@ -559,6 +499,39 @@ def play(canal):
         'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'no-cache'
     })
+
+# ============ PROXY MPEG-TS ============
+@app.route('/mpegts_proxy')
+def mpegts_proxy():
+    """Faz streaming do MPEG-TS do IPTV pro navegador (via HTTPS)."""
+    canal = (request.args.get('canal') or '').strip().lower()
+    if canal not in CANAIS_MPEGTS:
+        return "Canal invalido", 400
+
+    target = CANAIS_MPEGTS[canal]
+    h = {
+        "User-Agent": USER_AGENT,
+        "Accept": "*/*",
+        "Connection": "keep-alive",
+    }
+    sess = criar_sessao()
+    try:
+        r = sess.get(target, headers=h, timeout=15, verify=False, stream=True)
+        def gerar():
+            try:
+                for chunk in r.iter_content(64 * 1024):
+                    if chunk:
+                        yield chunk
+            except Exception:
+                pass
+        return Response(gerar(), status=200, headers={
+            'Content-Type': 'video/mp2t',
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+        })
+    except Exception as e:
+        return f"Erro: {e}", 500
 
 @app.route('/proxy_m3u8')
 def proxy_m3u8():
