@@ -1,5 +1,7 @@
+gunicorn
 flask
 curl_cffi
-gunicorn
 urllib3
+selenium
 requests
+
