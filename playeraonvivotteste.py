@@ -31,7 +31,6 @@ TS_CACHE_LOCK = threading.Lock()
 TS_CACHE_MAX = 500
 TS_CACHE_TEMPO = 90
 
-# ====== CANAIS FIXOS NA INTERFACE ======
 CANAIS_FIXOS = [
     "espn",
     "premiereclubes",
@@ -107,7 +106,6 @@ def buscar_segmento(url_segmento, canal):
             pass
     return None, 502
 
-# ============ HTML ============
 HTML_PAGINA = """
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -234,6 +232,17 @@ HTML_PAGINA = """
     object-fit: cover !important;
     width: 100% !important;
     height: 100% !important;
+  }
+
+  /* Em fullscreen o player ocupa tudo */
+  .video-js.vjs-fullscreen,
+  .video-js:-webkit-full-screen,
+  .video-js:-moz-full-screen,
+  .video-js:-ms-fullscreen{
+    width:100% !important;
+    height:100% !important;
+    max-height:100% !important;
+    border-radius:0 !important;
   }
 
   .fit-toggle{
@@ -431,7 +440,7 @@ HTML_PAGINA = """
   var nomeEl = document.getElementById('nowName');
   var statEl = document.getElementById('nowStat');
 
-  /* TOGGLE COVER / CONTAIN */
+  /* ========== TOGGLE COVER / CONTAIN ========== */
   var fitModo = 'cover';
   var btnFit = document.getElementById('fitToggle');
   function aplicarFit(){
@@ -447,6 +456,72 @@ HTML_PAGINA = """
   player.on('play', aplicarFit);
   aplicarFit();
 
+  /* ========== FULLSCREEN + ORIENTAÇÃO AUTOMÁTICA ========== */
+  (function configurarFullscreen(){
+    function travarLandscape(){
+      try{
+        if (screen.orientation && screen.orientation.lock) {
+          screen.orientation.lock('landscape').catch(function(){});
+        } else if (screen.lockOrientation) {
+          screen.lockOrientation('landscape');
+        } else if (screen.mozLockOrientation) {
+          screen.mozLockOrientation('landscape');
+        } else if (screen.msLockOrientation) {
+          screen.msLockOrientation('landscape');
+        }
+      } catch(e){}
+    }
+    function liberarOrientacao(){
+      try{
+        if (screen.orientation && screen.orientation.unlock) {
+          screen.orientation.unlock();
+        } else if (screen.unlockOrientation) {
+          screen.unlockOrientation();
+        } else if (screen.mozUnlockOrientation) {
+          screen.mozUnlockOrientation();
+        } else if (screen.msUnlockOrientation) {
+          screen.msUnlockOrientation();
+        }
+      } catch(e){}
+    }
+    function aoMudarTela(){
+      var cheio = document.fullscreenElement ||
+                  document.webkitFullscreenElement ||
+                  document.mozFullScreenElement ||
+                  document.msFullscreenElement;
+      if (cheio) {
+        travarLandscape();
+        setTimeout(travarLandscape, 300);
+        setTimeout(travarLandscape, 800);
+      } else {
+        liberarOrientacao();
+      }
+    }
+
+    function instalar(){
+      var el = player.el();
+      if (!el) return;
+      el.addEventListener('fullscreenchange', aoMudarTela);
+      el.addEventListener('webkitfullscreenchange', aoMudarTela);
+      el.addEventListener('mozfullscreenchange', aoMudarTela);
+      el.addEventListener('msfullscreenchange', aoMudarTela);
+      // Intercepta o clique no botão nativo de fullscreen
+      try{
+        player.controlBar.fullscreenToggle.on('click', function(){
+          setTimeout(aoMudarTela, 200);
+          setTimeout(aoMudarTela, 600);
+        });
+      }catch(e){}
+    }
+
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+      setTimeout(instalar, 200);
+    } else {
+      document.addEventListener('DOMContentLoaded', instalar);
+    }
+  })();
+
+  /* ========== CONTROLES ========== */
   function marcar(canal){
     document.querySelectorAll('.ch').forEach(function(el){
       el.classList.toggle('active', el.getAttribute('data-canal') === canal);
@@ -527,7 +602,6 @@ HTML_PAGINA = """
 </html>
 """
 
-# ============ ROTAS ============
 @app.after_request
 def cors(r):
     r.headers['Access-Control-Allow-Origin'] = '*'
