@@ -31,23 +31,16 @@ TS_CACHE_LOCK = threading.Lock()
 TS_CACHE_MAX = 500
 TS_CACHE_TEMPO = 90
 
-# ====== CANAIS HLS (passam pelo proxy) ======
+# ====== CANAIS FIXOS NA INTERFACE ======
 CANAIS_FIXOS = [
     "espn",
-    "premiere1",
+    "premiereclubes",
     "tnt",
     "telecinepipoca",
     "telecinefun",
     "telecinepremium",
     "space",
-    "warner",
 ]
-
-# ====== CANAIS MPEG-TS (tocam direto com mpegts.js) ======
-CANAIS_MPEGTS = {
-    "premiere1": "http://79.127.238.228:14157/",
-    "warner":    "http://79.127.238.228:14647/",
-}
 
 def criar_sessao(imp=None):
     if USE_CURL:
@@ -77,6 +70,7 @@ def obter_headers(canal):
     }
 
 def buscar_m3u8(canal):
+    """Baixa o m3u8 do canal. Retorna (resp, url) ou (None, None)."""
     url = montar_url(canal)
     h = obter_headers(canal)
     sess = criar_sessao("firefox133")
@@ -89,6 +83,7 @@ def buscar_m3u8(canal):
     return None, None
 
 def buscar_segmento(url_segmento, canal):
+    """Baixa um .ts do canal. Timeout curto + 2 tentativas."""
     with TS_CACHE_LOCK:
         item = TS_CACHE.get(url_segmento)
         if item:
@@ -137,8 +132,14 @@ HTML_PAGINA = '''
     justify-content: center;
     padding: 20px;
   }
-  .app { width: 100%; max-width: 900px; }
-  .brand { text-align: center; margin-bottom: 28px; }
+  .app {
+    width: 100%;
+    max-width: 900px;
+  }
+  .brand {
+    text-align: center;
+    margin-bottom: 28px;
+  }
   .brand h1 {
     font-size: clamp(2.2em, 8vw, 3.5em);
     font-weight: 900;
@@ -168,15 +169,14 @@ HTML_PAGINA = '''
     box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6), 0 0 80px rgba(108, 92, 231, 0.1);
     margin-bottom: 18px;
   }
-  .video-js, #player_mpeg {
+  .video-js {
     width: 100%;
     height: 420px;
     border-radius: 14px;
     overflow: hidden;
     background: #000;
   }
-  #player_mpeg { display: none; }
-  @media (max-width: 640px) { .video-js, #player_mpeg { height: 220px; } }
+  @media (max-width: 640px) { .video-js { height: 220px; } }
   .controls {
     display: flex;
     gap: 10px;
@@ -230,6 +230,7 @@ HTML_PAGINA = '''
     transform: none;
   }
 
+  /* ===== CANAIS FIXOS NEON ===== */
   .canais-fixos {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
@@ -268,6 +269,16 @@ HTML_PAGINA = '''
     box-shadow: 0 0 30px rgba(108, 92, 231, 0.6);
   }
 
+  .status {
+    text-align: center;
+    margin-top: 14px;
+    font-size: 0.85em;
+    color: #888;
+    min-height: 20px;
+    font-weight: 500;
+  }
+  .status.ok { color: #00b894; }
+  .status.err { color: #e74c3c; }
   .footer {
     text-align: center;
     color: #444;
@@ -286,7 +297,6 @@ HTML_PAGINA = '''
 
     <div class="player-card">
       <video id="player" class="video-js" controls playsinline preload="auto"></video>
-      <video id="player_mpeg" controls playsinline></video>
 
       <div class="canais-fixos">
         {% for c in canais %}
@@ -301,13 +311,14 @@ HTML_PAGINA = '''
           PLAY
         </button>
       </div>
+
+      <div class="status" id="status"></div>
     </div>
 
     <div class="footer">© MARCOS TV</div>
   </div>
 
 <script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/mpegts.js@1.7.3/dist/mpegts.js"></script>
 <script>
 var player = videojs('player', {
   controls: true,
@@ -328,82 +339,18 @@ var player = videojs('player', {
     }
   }
 });
+var statusEl = document.getElementById('status');
 var btn = document.getElementById('btnPlay');
 var input = document.getElementById('canal');
 
-var videoJsEl = document.getElementById('player');
-var videoMpegEl = document.getElementById('player_mpeg');
-
-var playerMpeg = null;
-var modoMpeg = false;
-
-// ===== CANAIS MPEG-TS (vem do backend) =====
-var CANAIS_MPEGTS = {{ canais_mpegts_json|safe }};
-var PAGINA_HTTPS = (location.protocol === 'https:');
+function setStatus(msg, tipo) {
+  statusEl.className = 'status' + (tipo ? ' ' + tipo : '');
+  statusEl.innerText = msg || '';
+}
 
 function marcarAtivo(el) {
   document.querySelectorAll('.canal-btn').forEach(function(b){ b.classList.remove('ativo'); });
   if (el) el.classList.add('ativo');
-}
-
-function pararMpeg() {
-  if (playerMpeg) {
-    try { playerMpeg.pause(); } catch(e){}
-    try { playerMpeg.unload(); } catch(e){}
-    try { playerMpeg.detachMediaElement(); } catch(e){}
-    try { playerMpeg.destroy(); } catch(e){}
-    playerMpeg = null;
-  }
-  modoMpeg = false;
-}
-
-// ===== TOCA MPEG-TS =====
-// Em HTTP: usa URL direta (funciona 100%)
-// Em HTTPS: usa proxy do Flask (fallback — pode cortar no Render)
-function tocarMpegTs(canal) {
-  pararMpeg();
-  player.pause();
-
-  videoJsEl.style.display = 'none';
-  videoMpegEl.style.display = 'block';
-  modoMpeg = true;
-
-  var url;
-  if (PAGINA_HTTPS) {
-    url = '/mpegts_proxy?canal=' + encodeURIComponent(canal);
-  } else {
-    url = CANAIS_MPEGTS[canal];
-  }
-
-  try {
-    playerMpeg = mpegts.createPlayer({
-      type: 'mpegts',
-      isLive: true,
-      url: url
-    }, {
-      enableWorker: false,
-      enableStashBuffer: false,
-      stashInitialSize: 128,
-      liveBufferLatencyChasing: true,
-      liveBufferLatencyMaxLatency: 3.0,
-      liveBufferLatencyMinRemain: 0.3
-    });
-
-    playerMpeg.attachMediaElement(videoMpegEl);
-    playerMpeg.load();
-
-    var p = playerMpeg.play();
-    if (p && p.catch) p.catch(function(){});
-  } catch (e) {}
-}
-
-function tocarHls(canal) {
-  pararMpeg();
-  videoMpegEl.style.display = 'none';
-  videoJsEl.style.display = 'block';
-
-  player.src({ src: '/play/' + encodeURIComponent(canal) + '?t=' + Date.now(), type: 'application/x-mpegURL' });
-  player.play().catch(function(){});
 }
 
 function tocarFixo(canal, el) {
@@ -414,23 +361,34 @@ function tocarFixo(canal, el) {
 
 function tocar() {
   var canal = input.value.trim().toLowerCase();
-  if (!canal) { input.focus(); return; }
-
-  if (CANAIS_MPEGTS[canal]) {
-    tocarMpegTs(canal);
+  if (!canal) {
+    setStatus('Digite o nome do canal', 'err');
+    input.focus();
     return;
   }
+  setStatus('Carregando ' + canal + '...');
+  btn.disabled = true;
 
   fetch('/testar/' + encodeURIComponent(canal))
     .then(r => r.json())
     .then(d => {
-      if (d.ok) tocarHls(canal);
+      btn.disabled = false;
+      if (d.ok) {
+        setStatus('Tocando: ' + canal, 'ok');
+        player.src({ src: '/play/' + encodeURIComponent(canal) + '?t=' + Date.now(), type: 'application/x-mpegURL' });
+        player.play().catch(function(e){ setStatus('Erro: ' + e.message, 'err'); });
+      } else {
+        setStatus(d.msg || 'Canal nao encontrado', 'err');
+      }
     })
-    .catch(function(){});
+    .catch(e => {
+      btn.disabled = false;
+      setStatus('Erro: ' + e.message, 'err');
+    });
 }
 
+// ===== RECONEXAO AUTOMATICA =====
 function recarregar() {
-  if (modoMpeg) return;
   var s = player.src();
   if (!s || s.indexOf('/play/') === -1) return;
   var canal = s.split('/play/')[1].split('?')[0];
@@ -438,21 +396,31 @@ function recarregar() {
   player.play().catch(function(){});
 }
 
-player.on('error', function() { setTimeout(recarregar, 1000); });
+player.on('error', function() {
+  setTimeout(recarregar, 1000);
+});
 
+// ===== DETECTA TRAVAMENTO (sem progresso por 10s) =====
 var ultimoTempo = 0;
 var travadoDesde = null;
 setInterval(function() {
-  if (modoMpeg) return;
   if (player.paused() || player.readyState() < 2) { travadoDesde = null; return; }
   var t = player.currentTime();
   if (t === ultimoTempo) {
     if (!travadoDesde) travadoDesde = Date.now();
-    else if (Date.now() - travadoDesde > 10000) { travadoDesde = null; recarregar(); }
-  } else { ultimoTempo = t; travadoDesde = null; }
+    else if (Date.now() - travadoDesde > 10000) {
+      travadoDesde = null;
+      recarregar();
+    }
+  } else {
+    ultimoTempo = t;
+    travadoDesde = null;
+  }
 }, 2000);
 
-input.addEventListener('keydown', function(e) { if (e.key === 'Enter') tocar(); });
+input.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') tocar();
+});
 </script>
 </body>
 </html>
@@ -467,19 +435,17 @@ def cors(r):
 
 @app.route('/')
 def index():
-    return render_template_string(
-        HTML_PAGINA,
-        canais=CANAIS_FIXOS,
-        canais_mpegts_json=json.dumps(CANAIS_MPEGTS)
-    )
+    return render_template_string(HTML_PAGINA, canais=CANAIS_FIXOS)
 
 @app.route('/testar/<canal>')
 def testar(canal):
     canal = canal.strip().lower()
     if not re.match(r'^[a-z0-9_\-]+$', canal):
-        return {"ok": False}
+        return {"ok": False, "msg": "Nome invalido"}
     r, _ = buscar_m3u8(canal)
-    return {"ok": bool(r)}
+    if r:
+        return {"ok": True}
+    return {"ok": False, "msg": "Canal '" + canal + "' indisponivel"}
 
 @app.route('/play/<canal>')
 def play(canal):
@@ -507,39 +473,6 @@ def play(canal):
         'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'no-cache'
     })
-
-# ============ PROXY MPEG-TS (só usado em HTTPS) ============
-@app.route('/mpegts_proxy')
-def mpegts_proxy():
-    canal = (request.args.get('canal') or '').strip().lower()
-    if canal not in CANAIS_MPEGTS:
-        return "Canal invalido", 400
-
-    target = CANAIS_MPEGTS[canal]
-    h = {
-        "User-Agent": USER_AGENT,
-        "Accept": "*/*",
-        "Connection": "keep-alive",
-    }
-    sess = criar_sessao()
-    try:
-        r = sess.get(target, headers=h, timeout=(5, 120), verify=False, stream=True)
-        def gerar():
-            try:
-                for chunk in r.iter_content(16 * 1024):
-                    if chunk:
-                        yield chunk
-            except Exception:
-                pass
-        return Response(gerar(), status=200, headers={
-            'Content-Type': 'video/mp2t',
-            'Access-Control-Allow-Origin': '*',
-            'Cache-Control': 'no-cache',
-            'X-Accel-Buffering': 'no',
-            'Connection': 'keep-alive',
-        })
-    except Exception as e:
-        return f"Erro: {e}", 500
 
 @app.route('/proxy_m3u8')
 def proxy_m3u8():
