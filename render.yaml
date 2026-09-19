@@ -3,9 +3,8 @@ services:
     name: mrctv2
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn -b 0.0.0.0:$PORT playeraonvivotteste:app
+    startCommand: gunicorn -b 0.0.0.0:$PORT app:app
     plan: free
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
-EOF
