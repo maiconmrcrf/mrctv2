@@ -21,11 +21,11 @@ USER_AGENT = "Mozilla/5.0 (Android 15; Mobile; rv:155.0) Gecko/155.0 Firefox/155
 COOKIE_FIXO = "bitmovin_analytics_uuid=a07b3c21-c8bc-4692-8761-53ffa4df341f"
 ORIGIN_FIXO = "https://bolodechocolate.fit"
 
-# ====== OTIMIZAÇÃO DE CACHE (OrderedDict - O(1)) ======
+# ====== CACHE ULTRA-RÁPIDO ======
 TS_CACHE = OrderedDict()
 TS_CACHE_LOCK = threading.Lock()
-TS_CACHE_MAX = 600
-TS_CACHE_TEMPO = 90
+TS_CACHE_MAX = 800
+TS_CACHE_TEMPO = 120
 
 # ====== CANAIS FIXOS ======
 CANAIS_FIXOS = [
@@ -38,7 +38,7 @@ CANAIS_FIXOS = [
     "space",
 ]
 
-# ====== POOL DE SESSÕES PERSISTENTES ======
+# ====== POOL DE CONEXÕES PERSISTENTES ======
 _SESSAO_GLOBAL = None
 _SESSAO_LOCK = threading.Lock()
 
@@ -54,9 +54,9 @@ def get_sessao_persistente():
             else:
                 _SESSAO_GLOBAL = ImpersonateSession.Session()
                 adapter = ImpersonateSession.adapters.HTTPAdapter(
-                    pool_connections=50, 
-                    pool_maxsize=100, 
-                    max_retries=1
+                    pool_connections=100, 
+                    pool_maxsize=200, 
+                    max_retries=2
                 )
                 _SESSAO_GLOBAL.mount('https://', adapter)
                 _SESSAO_GLOBAL.mount('http://', adapter)
@@ -86,7 +86,7 @@ def buscar_m3u8(canal):
     h = obter_headers(canal)
     sess = get_sessao_persistente()
     try:
-        r = sess.get(url, headers=h, timeout=10, verify=False)
+        r = sess.get(url, headers=h, timeout=8, verify=False)
         if r.status_code == 200 and ("#EXTM3U" in r.text or "#EXT-X" in r.text):
             return r, url
     except Exception:
@@ -124,7 +124,7 @@ def buscar_segmento(url_segmento, canal):
 
     return None, 502
 
-# ============ HTML ============
+# ============ HTML / FRONTEND ============
 HTML_PAGINA = '''
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -185,11 +185,12 @@ HTML_PAGINA = '''
     overflow: hidden;
     background: #000;
   }
-  .video-js video, .video-js .vjs-tech {
-    object-fit: cover !important;
-    width: 100% !important;
-    height: 100% !important;
-  }
+
+  /* MODOS DE ENQUADRAMENTO DA TELA */
+  .fit-contain video, .fit-contain .vjs-tech { object-fit: contain !important; }
+  .fit-cover video, .fit-cover .vjs-tech { object-fit: cover !important; }
+  .fit-fill video, .fit-fill .vjs-tech { object-fit: fill !important; }
+
   .video-js.vjs-fullscreen,
   .video-js:-webkit-full-screen,
   .video-js:-moz-full-screen,
@@ -220,15 +221,16 @@ HTML_PAGINA = '''
     box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.15);
   }
   .controls input::placeholder { color: #555; }
-  .controls button {
+  
+  .btn-action {
     background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%);
     color: #fff;
     border: none;
-    padding: 14px 28px;
+    padding: 14px 20px;
     border-radius: 12px;
     font-family: 'Inter', sans-serif;
     font-weight: 700;
-    font-size: 1em;
+    font-size: 0.9em;
     letter-spacing: 0.5px;
     cursor: pointer;
     transition: all 0.2s;
@@ -237,9 +239,15 @@ HTML_PAGINA = '''
     align-items: center;
     gap: 8px;
   }
-  .controls button:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(108, 92, 231, 0.5); }
-  .controls button:active { transform: translateY(0); }
-  .controls button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  .btn-action:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(108, 92, 231, 0.5); }
+  .btn-action:active { transform: translateY(0); }
+  .btn-action:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+  .btn-fit-mode {
+    background: rgba(30, 30, 48, 0.9);
+    border: 1.5px solid rgba(108, 92, 231, 0.5);
+    color: #a29bfe;
+  }
 
   .canais-fixos {
     display: grid;
@@ -299,7 +307,7 @@ HTML_PAGINA = '''
     </div>
 
     <div class="player-card">
-      <video id="player" class="video-js" controls playsinline preload="auto"></video>
+      <video id="player" class="video-js fit-contain" controls playsinline preload="auto"></video>
 
       <div class="canais-fixos">
         {% for c in canais %}
@@ -309,7 +317,12 @@ HTML_PAGINA = '''
 
       <div class="controls">
         <input id="canal" type="text" placeholder="Nome do canal (ex: discoveryturbo)" autocomplete="off">
-        <button id="btnPlay" onclick="tocar()">
+        
+        <button id="btnFit" class="btn-action btn-fit-mode" onclick="alternarModoTela()">
+          📺 TELA: PROPORCIONAL
+        </button>
+
+        <button id="btnPlay" class="btn-action" onclick="tocar()">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
           PLAY
         </button>
@@ -323,6 +336,7 @@ HTML_PAGINA = '''
 
 <script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
 <script>
+// CONFIGURAÇÕES ANTI-TRAVAMENTO
 var player = videojs('player', {
   controls: true,
   autoplay: false,
@@ -331,10 +345,10 @@ var player = videojs('player', {
   html5: {
     vhs: {
       overrideNative: true,
-      maxBufferLength: 20,
-      maxMaxBufferLength: 40,
-      liveSyncDuration: 3,
-      liveMaxLatencyDuration: 12,
+      maxBufferLength: 40,
+      maxMaxBufferLength: 80,
+      liveSyncDuration: 8,
+      liveMaxLatencyDuration: 25,
       enableLowInitialPlaylist: true,
       smoothQualityChange: true,
       fastQualityChange: true,
@@ -346,6 +360,20 @@ var player = videojs('player', {
 var statusEl = document.getElementById('status');
 var btn = document.getElementById('btnPlay');
 var input = document.getElementById('canal');
+var btnFit = document.getElementById('btnFit');
+
+// MODOS DE TAMANHO DA TELA
+var modostela = ['fit-contain', 'fit-cover', 'fit-fill'];
+var nomesModos = ['PROPORCIONAL', 'PREENCHER', 'ESTICAR'];
+var modoAtualIdx = 0;
+
+function alternarModoTela() {
+  var el = player.el();
+  el.classList.remove(modostela[modoAtualIdx]);
+  modoAtualIdx = (modoAtualIdx + 1) % modostela.length;
+  el.classList.add(modostela[modoAtualIdx]);
+  btnFit.innerText = '📺 TELA: ' + nomesModos[modoAtualIdx];
+}
 
 function setStatus(msg, tipo) {
   statusEl.className = 'status' + (tipo ? ' ' + tipo : '');
@@ -357,24 +385,23 @@ function marcarAtivo(el) {
   if (el) el.classList.add('ativo');
 }
 
-// ===== ENTRAR EM TELA CHEIA E MODO HORIZONTAL AUTOMATICAMENTE =====
-function entrarTelaCheiaHorizontal() {
-  try {
-    if (!player.isFullscreen()) {
-      player.requestFullscreen();
-    }
-    setTimeout(function() {
+// HORIZONTAL APENAS AO APERTAR O BOTÃO DE TELA CHEIA DO PLAYER
+player.on('fullscreenchange', function() {
+  if (player.isFullscreen()) {
+    try {
       if (screen.orientation && screen.orientation.lock) {
         screen.orientation.lock('landscape').catch(function(){});
       } else if (screen.lockOrientation) {
         screen.lockOrientation('landscape');
       }
-    }, 200);
-  } catch(e) {}
-}
-
-player.on('play', function() {
-  entrarTelaCheiaHorizontal();
+    } catch(e) {}
+  } else {
+    try {
+      if (screen.orientation && screen.orientation.unlock) {
+        screen.orientation.unlock().catch(function(){});
+      }
+    } catch(e) {}
+  }
 });
 
 function tocarFixo(canal, el) {
@@ -399,49 +426,22 @@ function tocar() {
       btn.disabled = false;
       if (d.ok) {
         setStatus('Tocando: ' + canal, 'ok');
+        
+        // RESETA COMPLETAMENTE O PLAYER PARA TROCAR DE CANAL SEM ERROS
+        player.pause();
+        player.error(null);
         player.src({ src: '/play/' + encodeURIComponent(canal) + '?t=' + Date.now(), type: 'application/x-mpegURL' });
-        player.play().then(function() {
-          entrarTelaCheiaHorizontal();
-        }).catch(function(e){ setStatus('Erro: ' + e.message, 'err'); });
+        player.load();
+        player.play().catch(function(e){ setStatus('Erro ao reproduzir: ' + e.message, 'err'); });
       } else {
         setStatus(d.msg || 'Canal nao encontrado', 'err');
       }
     })
     .catch(e => {
       btn.disabled = false;
-      setStatus('Erro: ' + e.message, 'err');
+      setStatus('Erro de conexão: ' + e.message, 'err');
     });
 }
-
-function recarregar() {
-  var s = player.src();
-  if (!s || s.indexOf('/play/') === -1) return;
-  var canal = s.split('/play/')[1].split('?')[0];
-  player.src({ src: '/play/' + canal + '?t=' + Date.now(), type: 'application/x-mpegURL' });
-  player.play().catch(function(){});
-}
-
-player.on('error', function() {
-  setTimeout(recarregar, 1200);
-});
-
-// DETECTA TRAVAMENTO DE FRAME E RECUPERA AUTOMATICAMENTE
-var ultimoTempo = 0;
-var travadoDesde = null;
-setInterval(function() {
-  if (player.paused() || player.readyState() < 2) { travadoDesde = null; return; }
-  var t = player.currentTime();
-  if (t === ultimoTempo) {
-    if (!travadoDesde) travadoDesde = Date.now();
-    else if (Date.now() - travadoDesde > 6000) {
-      travadoDesde = null;
-      recarregar();
-    }
-  } else {
-    ultimoTempo = t;
-    travadoDesde = null;
-  }
-}, 1500);
 
 input.addEventListener('keydown', function(e) {
   if (e.key === 'Enter') tocar();
@@ -546,7 +546,7 @@ def ts_proxy():
     return Response(conteudo, status=200, headers={
         'Content-Type': 'video/mp2t',
         'Content-Length': str(len(conteudo)),
-        'Cache-Control': 'public, max-age=60',
+        'Cache-Control': 'public, max-age=120',
         'Accept-Ranges': 'bytes',
         'Access-Control-Allow-Origin': '*'
     })
