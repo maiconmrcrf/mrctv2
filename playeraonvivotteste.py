@@ -31,7 +31,6 @@ TS_CACHE_LOCK = threading.Lock()
 TS_CACHE_MAX = 500
 TS_CACHE_TEMPO = 90
 
-# ====== CANAIS FIXOS NA INTERFACE ======
 CANAIS_FIXOS = [
     "espn",
     "premiereclubes",
@@ -70,7 +69,6 @@ def obter_headers(canal):
     }
 
 def buscar_m3u8(canal):
-    """Baixa o m3u8 do canal. Retorna (resp, url) ou (None, None)."""
     url = montar_url(canal)
     h = obter_headers(canal)
     sess = criar_sessao("firefox133")
@@ -83,7 +81,6 @@ def buscar_m3u8(canal):
     return None, None
 
 def buscar_segmento(url_segmento, canal):
-    """Baixa um .ts do canal. Timeout curto + 2 tentativas."""
     with TS_CACHE_LOCK:
         item = TS_CACHE.get(url_segmento)
         if item:
@@ -109,18 +106,16 @@ def buscar_segmento(url_segmento, canal):
             pass
     return None, 502
 
-# ============ HTML ============
 HTML_PAGINA = '''
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>MARCOS TV</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
-<link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet" />
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   html, body { height: 100%; }
   body {
     font-family: 'Inter', -apple-system, Arial, sans-serif;
@@ -132,87 +127,94 @@ HTML_PAGINA = '''
     justify-content: center;
     padding: 20px;
   }
-  .app {
-    width: 100%;
-    max-width: 900px;
-  }
-  .brand {
-    text-align: center;
-    margin-bottom: 28px;
-  }
+  .app { width: 100%; max-width: 900px; }
+  .brand { text-align: center; margin-bottom: 28px; }
   .brand h1 {
     font-size: clamp(2.2em, 8vw, 3.5em);
-    font-weight: 900;
-    letter-spacing: 2px;
+    font-weight: 900; letter-spacing: 2px;
     background: linear-gradient(135deg, #ffffff 0%, #a29bfe 50%, #6c5ce7 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    margin-bottom: 6px;
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text; margin-bottom: 6px;
     text-shadow: 0 0 40px rgba(108, 92, 231, 0.3);
   }
   .brand .sub {
-    color: #6c5ce7;
-    font-size: 0.75em;
-    letter-spacing: 4px;
-    font-weight: 600;
-    text-transform: uppercase;
-    opacity: 0.8;
+    color: #6c5ce7; font-size: 0.75em; letter-spacing: 4px;
+    font-weight: 600; text-transform: uppercase; opacity: 0.8;
   }
   .player-card {
     background: rgba(20, 20, 31, 0.85);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
     border: 1px solid rgba(108, 92, 231, 0.25);
-    border-radius: 20px;
-    padding: 18px;
+    border-radius: 20px; padding: 18px;
     box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6), 0 0 80px rgba(108, 92, 231, 0.1);
     margin-bottom: 18px;
   }
-  .video-js {
+
+  /* ====== PLAYER ====== */
+  .player-wrap {
+    position: relative;
     width: 100%;
     height: 420px;
     border-radius: 14px;
     overflow: hidden;
     background: #000;
   }
-  /* ===== NOVO: preenche a tela toda (mata tarjas) ===== */
-  .video-js video,
-  .video-js .vjs-tech {
-    object-fit: cover !important;
-    width: 100% !important;
-    height: 100% !important;
+  .player-wrap video {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+    background: #000;
   }
-  /* ===== NOVO: em fullscreen ocupa tudo ===== */
-  .video-js.vjs-fullscreen,
-  .video-js:-webkit-full-screen,
-  .video-js:-moz-full-screen,
-  .video-js:-ms-fullscreen {
-    width: 100% !important;
-    height: 100% !important;
-    max-height: 100% !important;
+  @media (max-width: 640px) { .player-wrap { height: 220px; } }
+
+  /* Fullscreen: ocupa tudo */
+  .player-wrap:fullscreen,
+  .player-wrap:-webkit-full-screen,
+  .player-wrap:-moz-full-screen,
+  .player-wrap:-ms-fullscreen {
+    width: 100vw !important;
+    height: 100vh !important;
     border-radius: 0 !important;
   }
-  @media (max-width: 640px) { .video-js { height: 220px; } }
-  .controls {
-    display: flex;
-    gap: 10px;
-    margin-top: 16px;
-    flex-wrap: wrap;
+  .player-wrap:fullscreen video,
+  .player-wrap:-webkit-full-screen video {
+    width: 100% !important;
+    height: 100% !important;
   }
+
+  /* Botão Cover/Contain */
+  .fit-toggle {
+    position: absolute;
+    top: 12px; right: 12px;
+    background: rgba(0,0,0,.6);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,.2);
+    color: #fff;
+    padding: 8px 14px;
+    border-radius: 999px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    z-index: 10;
+    transition: all .2s;
+  }
+  .fit-toggle:hover {
+    background: rgba(108, 92, 231, .5);
+    border-color: #a29bfe;
+  }
+
+  .controls { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
   .controls input {
-    flex: 1;
-    min-width: 160px;
+    flex: 1; min-width: 160px;
     background: rgba(13, 13, 20, 0.9);
     border: 1.5px solid rgba(108, 92, 231, 0.3);
-    color: #fff;
-    padding: 14px 16px;
-    border-radius: 12px;
-    font-family: 'Inter', sans-serif;
-    font-size: 1em;
-    font-weight: 500;
-    outline: none;
-    transition: all 0.2s;
+    color: #fff; padding: 14px 16px; border-radius: 12px;
+    font-family: 'Inter', sans-serif; font-size: 1em; font-weight: 500;
+    outline: none; transition: all 0.2s;
   }
   .controls input:focus {
     border-color: #6c5ce7;
@@ -221,20 +223,11 @@ HTML_PAGINA = '''
   .controls input::placeholder { color: #555; }
   .controls button {
     background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%);
-    color: #fff;
-    border: none;
-    padding: 14px 28px;
-    border-radius: 12px;
-    font-family: 'Inter', sans-serif;
-    font-weight: 700;
-    font-size: 1em;
-    letter-spacing: 0.5px;
-    cursor: pointer;
-    transition: all 0.2s;
+    color: #fff; border: none; padding: 14px 28px; border-radius: 12px;
+    font-family: 'Inter', sans-serif; font-weight: 700; font-size: 1em;
+    letter-spacing: 0.5px; cursor: pointer; transition: all 0.2s;
     box-shadow: 0 8px 20px rgba(108, 92, 231, 0.35);
-    display: flex;
-    align-items: center;
-    gap: 8px;
+    display: flex; align-items: center; gap: 8px;
   }
   .controls button:hover {
     transform: translateY(-2px);
@@ -242,38 +235,26 @@ HTML_PAGINA = '''
   }
   .controls button:active { transform: translateY(0); }
   .controls button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-    transform: none;
+    opacity: 0.5; cursor: not-allowed; transform: none;
   }
 
-  /* ===== CANAIS FIXOS NEON ===== */
   .canais-fixos {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-    gap: 8px;
-    margin-bottom: 16px;
+    gap: 8px; margin-bottom: 16px;
   }
   .canal-btn {
     background: rgba(20, 20, 31, 0.7);
     border: 1.5px solid rgba(108, 92, 231, 0.4);
-    color: #a29bfe;
-    padding: 14px 8px;
-    border-radius: 12px;
-    font-family: 'Inter', sans-serif;
-    font-weight: 700;
-    font-size: 0.8em;
-    letter-spacing: 1.2px;
-    text-transform: uppercase;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    text-align: center;
+    color: #a29bfe; padding: 14px 8px; border-radius: 12px;
+    font-family: 'Inter', sans-serif; font-weight: 700;
+    font-size: 0.8em; letter-spacing: 1.2px; text-transform: uppercase;
+    cursor: pointer; transition: all 0.2s ease; text-align: center;
     text-shadow: 0 0 10px rgba(162, 155, 254, 0.6);
   }
   .canal-btn:hover {
     background: rgba(108, 92, 231, 0.15);
-    border-color: #a29bfe;
-    color: #fff;
+    border-color: #a29bfe; color: #fff;
     text-shadow: 0 0 16px rgba(162, 155, 254, 1);
     box-shadow: 0 0 25px rgba(108, 92, 231, 0.4);
     transform: translateY(-2px);
@@ -281,27 +262,19 @@ HTML_PAGINA = '''
   .canal-btn:active { transform: translateY(0); }
   .canal-btn.ativo {
     background: linear-gradient(135deg, rgba(108, 92, 231, 0.35), rgba(162, 155, 254, 0.35));
-    border-color: #a29bfe;
-    color: #fff;
+    border-color: #a29bfe; color: #fff;
     box-shadow: 0 0 30px rgba(108, 92, 231, 0.6);
   }
 
   .status {
-    text-align: center;
-    margin-top: 14px;
-    font-size: 0.85em;
-    color: #888;
-    min-height: 20px;
-    font-weight: 500;
+    text-align: center; margin-top: 14px; font-size: 0.85em;
+    color: #888; min-height: 20px; font-weight: 500;
   }
   .status.ok { color: #00b894; }
   .status.err { color: #e74c3c; }
   .footer {
-    text-align: center;
-    color: #444;
-    font-size: 0.75em;
-    letter-spacing: 1px;
-    margin-top: 20px;
+    text-align: center; color: #444; font-size: 0.75em;
+    letter-spacing: 1px; margin-top: 20px;
   }
 </style>
 </head>
@@ -313,7 +286,10 @@ HTML_PAGINA = '''
     </div>
 
     <div class="player-card">
-      <video id="player" class="video-js" controls playsinline preload="auto"></video>
+      <div class="player-wrap" id="playerWrap">
+        <video id="player" controls playsinline preload="auto"></video>
+        <button class="fit-toggle" id="fitToggle">Cover</button>
+      </div>
 
       <div class="canais-fixos">
         {% for c in canais %}
@@ -335,36 +311,146 @@ HTML_PAGINA = '''
     <div class="footer">© MARCOS TV</div>
   </div>
 
-<script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
 <script>
-var player = videojs('player', {
-  controls: true,
-  autoplay: false,
-  preload: 'auto',
-  liveui: true,
-  html5: {
-    vhs: {
-      overrideNative: true,
-      maxBufferLength: 60,
-      maxMaxBufferLength: 120,
-      liveSyncDuration: 10,
-      liveMaxLatencyDuration: 60,
-      enableLowInitialPlaylist: true,
-      limitRenditionByPlayerDimensions: false,
-      smoothQualityChange: true,
-      fastQualityChange: true
-    }
-  }
-});
+var video = document.getElementById('player');
+var wrap = document.getElementById('playerWrap');
 var statusEl = document.getElementById('status');
 var btn = document.getElementById('btnPlay');
 var input = document.getElementById('canal');
+var btnFit = document.getElementById('fitToggle');
+
+/* ========== HLS.JS ========== */
+var hls = null;
+var fitModo = 'cover';
+var canalAtual = '';
 
 function setStatus(msg, tipo) {
   statusEl.className = 'status' + (tipo ? ' ' + tipo : '');
   statusEl.innerText = msg || '';
 }
 
+function aplicarFit() {
+  video.style.objectFit = fitModo;
+  btnFit.textContent = (fitModo === 'cover') ? 'Cover' : 'Contain';
+}
+
+btnFit.addEventListener('click', function() {
+  fitModo = (fitModo === 'cover') ? 'contain' : 'cover';
+  aplicarFit();
+});
+
+function destruirHls() {
+  if (hls) {
+    try { hls.destroy(); } catch(e){}
+    hls = null;
+  }
+}
+
+function iniciarHls(url) {
+  destruirHls();
+
+  if (Hls.isSupported()) {
+    hls = new Hls({
+      // ===== BUFFER GRANDE =====
+      maxBufferLength: 120,
+      maxMaxBufferLength: 240,
+      maxBufferSize: 120 * 1000 * 1000,
+      maxBufferHole: 0.5,
+
+      // ===== LIVE STREAM =====
+      liveSyncDuration: 15,
+      liveMaxLatencyDuration: 60,
+      liveDurationInfinity: true,
+      lowLatencyMode: false,
+
+      // ===== PRE-FETCH (baixa segmentos à frente) =====
+      startFragPrefetch: true,
+
+      // ===== WORKER (processa em paralelo, mais fluido) =====
+      enableWorker: true,
+
+      // ===== RETRY AGRESSIVO =====
+      manifestLoadingMaxRetry: 6,
+      manifestLoadingRetryDelay: 500,
+      manifestLoadingMaxRetryTimeout: 8000,
+      levelLoadingMaxRetry: 6,
+      levelLoadingRetryDelay: 500,
+      levelLoadingMaxRetryTimeout: 8000,
+      fragLoadingMaxRetry: 6,
+      fragLoadingRetryDelay: 500,
+      fragLoadingMaxRetryTimeout: 8000,
+
+      // ===== SEGMENTOS =====
+      appendErrorMaxRetry: 3,
+      nudgeMaxRetry: 5,
+
+      // ===== DESCARTA ANTIGO (economiza memória) =====
+      backBufferLength: 30
+    });
+
+    hls.loadSource(url);
+    hls.attachMedia(video);
+
+    hls.on(Hls.Events.MANIFEST_PARSED, function() {
+      setStatus('Tocando: ' + canalAtual, 'ok');
+      video.play().catch(function(){});
+    });
+
+    // ===== RECUPERAÇÃO AUTOMÁTICA DE ERRO =====
+    hls.on(Hls.Events.ERROR, function(event, data) {
+      if (data.fatal) {
+        switch(data.type) {
+          case Hls.ErrorTypes.NETWORK_ERROR:
+            setStatus('Reconectando (rede)...');
+            hls.startLoad();
+            break;
+          case Hls.ErrorTypes.MEDIA_ERROR:
+            setStatus('Reconectando (mídia)...');
+            hls.recoverMediaError();
+            break;
+          default:
+            setStatus('Reconectando...');
+            destruirHls();
+            setTimeout(function() {
+              iniciarHls('/play/' + encodeURIComponent(canalAtual) + '?t=' + Date.now());
+            }, 2000);
+            break;
+        }
+      }
+    });
+
+    // ===== SE FICAR SEM DADOS, RECONECTA =====
+    var ultimoProgresso = 0;
+    var ultimoTempo = 0;
+    setInterval(function() {
+      if (!hls || video.paused || video.readyState < 2) return;
+      var t = video.currentTime;
+      if (t === ultimoTempo) {
+        if (!ultimoProgresso) ultimoProgresso = Date.now();
+        else if (Date.now() - ultimoProgresso > 10000) {
+          ultimoProgresso = 0;
+          setStatus('Reconectando...');
+          hls.startLoad();
+        }
+      } else {
+        ultimoTempo = t;
+        ultimoProgresso = 0;
+      }
+    }, 2000);
+
+  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    // Safari / iOS
+    video.src = url;
+    video.addEventListener('loadedmetadata', function() {
+      video.play().catch(function(){});
+    });
+  } else {
+    setStatus('Navegador sem suporte HLS', 'err');
+  }
+}
+
+/* ========== CONTROLES ========== */
 function marcarAtivo(el) {
   document.querySelectorAll('.canal-btn').forEach(function(b){ b.classList.remove('ativo'); });
   if (el) el.classList.add('ativo');
@@ -383,6 +469,7 @@ function tocar() {
     input.focus();
     return;
   }
+  canalAtual = canal;
   setStatus('Carregando ' + canal + '...');
   btn.disabled = true;
 
@@ -391,9 +478,8 @@ function tocar() {
     .then(d => {
       btn.disabled = false;
       if (d.ok) {
-        setStatus('Tocando: ' + canal, 'ok');
-        player.src({ src: '/play/' + encodeURIComponent(canal) + '?t=' + Date.now(), type: 'application/x-mpegURL' });
-        player.play().catch(function(e){ setStatus('Erro: ' + e.message, 'err'); });
+        var url = '/play/' + encodeURIComponent(canal) + '?t=' + Date.now();
+        iniciarHls(url);
       } else {
         setStatus(d.msg || 'Canal nao encontrado', 'err');
       }
@@ -404,38 +490,7 @@ function tocar() {
     });
 }
 
-// ===== RECONEXAO AUTOMATICA =====
-function recarregar() {
-  var s = player.src();
-  if (!s || s.indexOf('/play/') === -1) return;
-  var canal = s.split('/play/')[1].split('?')[0];
-  player.src({ src: '/play/' + canal + '?t=' + Date.now(), type: 'application/x-mpegURL' });
-  player.play().catch(function(){});
-}
-
-player.on('error', function() {
-  setTimeout(recarregar, 1000);
-});
-
-// ===== DETECTA TRAVAMENTO (sem progresso por 10s) =====
-var ultimoTempo = 0;
-var travadoDesde = null;
-setInterval(function() {
-  if (player.paused() || player.readyState() < 2) { travadoDesde = null; return; }
-  var t = player.currentTime();
-  if (t === ultimoTempo) {
-    if (!travadoDesde) travadoDesde = Date.now();
-    else if (Date.now() - travadoDesde > 10000) {
-      travadoDesde = null;
-      recarregar();
-    }
-  } else {
-    ultimoTempo = t;
-    travadoDesde = null;
-  }
-}, 2000);
-
-// ===== NOVO: FULLSCREEN EM LANDSCAPE AUTOMATICO =====
+/* ========== FULLSCREEN + LANDSCAPE AUTOMÁTICO ========== */
 (function(){
   function landscape(){
     try{
@@ -457,31 +512,21 @@ setInterval(function() {
     if (full) { landscape(); setTimeout(landscape, 300); setTimeout(landscape, 800); }
     else { unlock(); }
   }
-  function install(){
-    var el = player.el();
-    if (!el) return;
-    el.addEventListener('fullscreenchange', onChange);
-    el.addEventListener('webkitfullscreenchange', onChange);
-    try{
-      player.controlBar.fullscreenToggle.on('click', function(){
-        setTimeout(onChange, 200);
-        setTimeout(onChange, 600);
-      });
-    }catch(e){}
-  }
-  if (document.readyState === 'complete' || document.readyState === 'interactive') setTimeout(install, 200);
-  else document.addEventListener('DOMContentLoaded', install);
+  wrap.addEventListener('fullscreenchange', onChange);
+  wrap.addEventListener('webkitfullscreenchange', onChange);
 })();
 
+/* ========== ENTER ========== */
 input.addEventListener('keydown', function(e) {
   if (e.key === 'Enter') tocar();
 });
+
+aplicarFit();
 </script>
 </body>
 </html>
 '''
 
-# ============ ROTAS ============
 @app.after_request
 def cors(r):
     r.headers['Access-Control-Allow-Origin'] = '*'
