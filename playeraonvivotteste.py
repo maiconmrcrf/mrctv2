@@ -13,15 +13,16 @@ except ImportError:
     import requests as ImpersonateSession
     USE_CURL = False
 
+import requests as std_requests
+
 app = Flask(__name__)
 PORTA = int(os.environ.get("PORT", 10000))
-URL_PUBLICA = os.environ.get("URL_PUBLICA", "")
 
 USER_AGENT = "Mozilla/5.0 (Android 15; Mobile; rv:155.0) Gecko/155.0 Firefox/155.0"
 COOKIE_FIXO = "bitmovin_analytics_uuid=a07b3c21-c8bc-4692-8761-53ffa4df341f"
 ORIGIN_FIXO = "https://bolodechocolate.fit"
 
-# ====== CACHE ULTRA-RÁPIDO ======
+# ====== CACHE DE SEGMENTOS TS ======
 TS_CACHE = OrderedDict()
 TS_CACHE_LOCK = threading.Lock()
 TS_CACHE_MAX = 800
@@ -38,7 +39,6 @@ CANAIS_FIXOS = [
     "space",
 ]
 
-# ====== POOL DE CONEXÕES PERSISTENTES ======
 _SESSAO_GLOBAL = None
 _SESSAO_LOCK = threading.Lock()
 
@@ -53,7 +53,7 @@ def get_sessao_persistente():
                     _SESSAO_GLOBAL = ImpersonateSession.Session()
             else:
                 _SESSAO_GLOBAL = ImpersonateSession.Session()
-                adapter = ImpersonateSession.adapters.HTTPAdapter(
+                adapter = std_requests.adapters.HTTPAdapter(
                     pool_connections=100, 
                     pool_maxsize=200, 
                     max_retries=2
@@ -84,13 +84,24 @@ def obter_headers(canal):
 def buscar_m3u8(canal):
     url = montar_url(canal)
     h = obter_headers(canal)
-    sess = get_sessao_persistente()
+    
+    # 1. Tentativa via Sessão Persistente
     try:
+        sess = get_sessao_persistente()
         r = sess.get(url, headers=h, timeout=8, verify=False)
         if r.status_code == 200 and ("#EXTM3U" in r.text or "#EXT-X" in r.text):
             return r, url
     except Exception:
         pass
+
+    # 2. Fallback direto via requests padrão se a sessão falhar
+    try:
+        r = std_requests.get(url, headers=h, timeout=8, verify=False)
+        if r.status_code == 200 and ("#EXTM3U" in r.text or "#EXT-X" in r.text):
+            return r, url
+    except Exception:
+        pass
+
     return None, None
 
 def buscar_segmento(url_segmento, canal):
@@ -106,11 +117,10 @@ def buscar_segmento(url_segmento, canal):
                 del TS_CACHE[url_segmento]
 
     h = obter_headers(canal)
-    sess = get_sessao_persistente()
     
-    for _ in range(2):
+    for requester in [get_sessao_persistente(), std_requests]:
         try:
-            r = sess.get(url_segmento, headers=h, timeout=6, verify=False)
+            r = requester.get(url_segmento, headers=h, timeout=6, verify=False)
             if r.status_code == 200:
                 with TS_CACHE_LOCK:
                     if len(TS_CACHE) >= TS_CACHE_MAX:
@@ -124,7 +134,6 @@ def buscar_segmento(url_segmento, canal):
 
     return None, 502
 
-# ============ HTML / FRONTEND ============
 HTML_PAGINA = '''
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -186,12 +195,7 @@ HTML_PAGINA = '''
     background: #000;
   }
 
-  /* MODOS DE ENQUADRAMENTO */
-  .fit-contain video, .fit-contain .vjs-tech { object-fit: contain !important; }
-  .fit-cover video, .fit-cover .vjs-tech { object-fit: cover !important; }
-  .fit-fill video, .fit-fill .vjs-tech { object-fit: fill !important; }
-
-  /* TELA CHEIA 100% PREENCHIDA (EDGE TO EDGE IGUAL À IMAGEM) */
+  /* FORÇA PREENCHIMENTO 100% SEM BORDAS PRETAS EM TELA CHEIA */
   .video-js.vjs-fullscreen {
     width: 100vw !important;
     height: 100vh !important;
@@ -206,23 +210,8 @@ HTML_PAGINA = '''
   .video-js.vjs-fullscreen .vjs-tech {
     width: 100vw !important;
     height: 100vh !important;
-    object-fit: cover !important; /* FORÇA 100% SEM BORDAS PRETAS */
+    object-fit: cover !important;
   }
-
-  /* BOTÃO DE FORMATO DE TELA NA BARRA DO PLAYER */
-  .vjs-fit-btn {
-    font-family: 'Inter', sans-serif !important;
-    font-size: 11px !important;
-    font-weight: 800 !important;
-    color: #a29bfe !important;
-    cursor: pointer;
-    display: flex !important;
-    align-items: center;
-    justify-content: center;
-    padding: 0 8px !important;
-    width: auto !important;
-  }
-  .vjs-fit-btn:hover { color: #fff !important; }
 
   @media (max-width: 640px) { .video-js:not(.vjs-fullscreen) { height: 220px; } }
 
@@ -311,7 +300,7 @@ HTML_PAGINA = '''
     </div>
 
     <div class="player-card">
-      <video id="player" class="video-js fit-contain" controls playsinline preload="auto"></video>
+      <video id="player" class="video-js" controls playsinline preload="auto"></video>
 
       <div class="canais-fixos">
         {% for c in canais %}
@@ -359,57 +348,17 @@ var statusEl = document.getElementById('status');
 var btn = document.getElementById('btnPlay');
 var input = document.getElementById('canal');
 
-// SISTEMA DE TAMANHO DA TELA
-var modostela = ['fit-contain', 'fit-cover', 'fit-fill'];
-var rótulosModos = ['[ 16:9 ]', '[ CROP ]', '[ FULL ]'];
-var nomesModos = ['PROPORCIONAL', 'PREENCHER', 'ESTICAR'];
-var modoAtualIdx = 0;
-
-var Button = videojs.getComponent('Button');
-var FitButton = videojs.extend(Button, {
-  constructor: function() {
-    Button.apply(this, arguments);
-    this.controlText('Tamanho');
-  },
-  buildCSSClass: function() {
-    return 'vjs-control vjs-button vjs-fit-btn';
-  },
-  handleClick: function() {
-    var el = player.el();
-    el.classList.remove(modostela[modoAtualIdx]);
-    modoAtualIdx = (modoAtualIdx + 1) % modostela.length;
-    el.classList.add(modostela[modoAtualIdx]);
-    this.el().innerText = rótulosModos[modoAtualIdx];
-    setStatus('Tamanho: ' + nomesModos[modoAtualIdx], 'ok');
-  }
-});
-videojs.registerComponent('FitButton', FitButton);
-
-player.ready(function() {
-  var controlBar = player.getChild('controlBar');
-  var fullscreenIdx = controlBar.children().findIndex(c => c.name() === 'FullscreenToggle');
-  var btnInstance = controlBar.addChild('FitButton', {}, fullscreenIdx !== -1 ? fullscreenIdx : undefined);
-  if (btnInstance && btnInstance.el()) {
-    btnInstance.el().innerText = rótulosModos[0];
-  }
-});
-
-// AO ENTRAR EM TELA CHEIA -> FORÇA A HORIZONTAL E TELA FULL EDGE-TO-EDGE
 player.on('fullscreenchange', function() {
   if (player.isFullscreen()) {
     try {
       if (screen.orientation && screen.orientation.lock) {
         screen.orientation.lock('landscape').catch(function(){});
-      } else if (screen.lockOrientation) {
-        screen.lockOrientation('landscape');
       }
     } catch(e) {}
   } else {
     try {
       if (screen.orientation && screen.orientation.unlock) {
         screen.orientation.unlock().catch(function(){});
-      } else if (screen.unlockOrientation) {
-        screen.unlockOrientation();
       }
     } catch(e) {}
   }
@@ -526,30 +475,39 @@ def proxy_m3u8():
         return "Faltam parametros", 400
 
     h = obter_headers(canal)
-    sess = get_sessao_persistente()
+    
+    r = None
     try:
+        sess = get_sessao_persistente()
         r = sess.get(target, headers=h, timeout=8, verify=False)
-        if r.status_code != 200:
-            return f"upstream {r.status_code}", r.status_code
+    except Exception:
+        pass
 
-        base = getattr(r, 'url', target)
-        linhas = []
-        for l in r.text.splitlines():
-            ls = l.strip()
-            if ls and not ls.startswith('#'):
-                abs_url = urljoin(base, ls)
-                ep = "/proxy_m3u8" if '.m3u8' in ls else "/ts_proxy"
-                linhas.append(f"{ep}?url={quote(abs_url, safe='')}&canal={canal}")
-            else:
-                linhas.append(ls)
+    if not r or r.status_code != 200:
+        try:
+            r = std_requests.get(target, headers=h, timeout=8, verify=False)
+        except Exception as e:
+            return f"Erro: {e}", 500
 
-        return Response("\n".join(linhas), status=200, headers={
-            'Content-Type': 'application/vnd.apple.mpegurl',
-            'Access-Control-Allow-Origin': '*',
-            'Cache-Control': 'no-cache'
-        })
-    except Exception as e:
-        return f"Erro: {e}", 500
+    if r.status_code != 200:
+        return f"upstream {r.status_code}", r.status_code
+
+    base = getattr(r, 'url', target)
+    linhas = []
+    for l in r.text.splitlines():
+        ls = l.strip()
+        if ls and not ls.startswith('#'):
+            abs_url = urljoin(base, ls)
+            ep = "/proxy_m3u8" if '.m3u8' in ls else "/ts_proxy"
+            linhas.append(f"{ep}?url={quote(abs_url, safe='')}&canal={canal}")
+        else:
+            linhas.append(ls)
+
+    return Response("\n".join(linhas), status=200, headers={
+        'Content-Type': 'application/vnd.apple.mpegurl',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-cache'
+    })
 
 @app.route('/ts_proxy')
 def ts_proxy():
