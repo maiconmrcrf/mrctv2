@@ -145,20 +145,19 @@ HTML_PAGINA = '''
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 20px;
+    padding: 16px;
   }
   .app { width: 100%; max-width: 900px; }
-  .brand { text-align: center; margin-bottom: 28px; }
+  .brand { text-align: center; margin-bottom: 20px; }
   .brand h1 {
-    font-size: clamp(2.2em, 8vw, 3.5em);
+    font-size: clamp(2em, 7vw, 3.2em);
     font-weight: 900;
     letter-spacing: 2px;
     background: linear-gradient(135deg, #ffffff 0%, #a29bfe 50%, #6c5ce7 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
-    margin-bottom: 6px;
-    text-shadow: 0 0 40px rgba(108, 92, 231, 0.3);
+    margin-bottom: 4px;
   }
   .brand .sub {
     color: #6c5ce7;
@@ -174,10 +173,10 @@ HTML_PAGINA = '''
     -webkit-backdrop-filter: blur(20px);
     border: 1px solid rgba(108, 92, 231, 0.25);
     border-radius: 20px;
-    padding: 18px;
-    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6), 0 0 80px rgba(108, 92, 231, 0.1);
-    margin-bottom: 18px;
+    padding: 16px;
+    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6);
   }
+  
   .video-js {
     width: 100%;
     height: 420px;
@@ -186,10 +185,25 @@ HTML_PAGINA = '''
     background: #000;
   }
 
-  /* MODOS DE ENQUADRAMENTO DA TELA */
+  /* FIT MODES PARA O VÍDEO */
   .fit-contain video, .fit-contain .vjs-tech { object-fit: contain !important; }
   .fit-cover video, .fit-cover .vjs-tech { object-fit: cover !important; }
   .fit-fill video, .fit-fill .vjs-tech { object-fit: fill !important; }
+
+  /* ESTILIZAÇÃO DO BOTÃO DE TAMANHO NA BARRA DO PLAYER */
+  .vjs-fit-btn {
+    font-family: 'Inter', sans-serif !important;
+    font-size: 11px !important;
+    font-weight: 800 !important;
+    color: #a29bfe !important;
+    cursor: pointer;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    padding: 0 8px !important;
+    width: auto !important;
+  }
+  .vjs-fit-btn:hover { color: #fff !important; }
 
   .video-js.vjs-fullscreen,
   .video-js:-webkit-full-screen,
@@ -197,14 +211,13 @@ HTML_PAGINA = '''
   .video-js:-ms-fullscreen {
     width: 100% !important;
     height: 100% !important;
-    max-height: 100% !important;
     border-radius: 0 !important;
   }
-  @media (max-width: 640px) { .video-js { height: 220px; } }
-  .controls { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+  @media (max-width: 640px) { .video-js { height: 230px; } }
+
+  .controls { display: flex; gap: 10px; margin-top: 14px; }
   .controls input {
     flex: 1;
-    min-width: 160px;
     background: rgba(13, 13, 20, 0.9);
     border: 1.5px solid rgba(108, 92, 231, 0.3);
     color: #fff;
@@ -214,81 +227,61 @@ HTML_PAGINA = '''
     font-size: 1em;
     font-weight: 500;
     outline: none;
-    transition: all 0.2s;
   }
-  .controls input:focus {
-    border-color: #6c5ce7;
-    box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.15);
-  }
-  .controls input::placeholder { color: #555; }
+  .controls input:focus { border-color: #6c5ce7; }
   
-  .btn-action {
+  .btn-play {
     background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%);
     color: #fff;
     border: none;
-    padding: 14px 20px;
+    padding: 14px 24px;
     border-radius: 12px;
     font-family: 'Inter', sans-serif;
     font-weight: 700;
     font-size: 0.9em;
-    letter-spacing: 0.5px;
     cursor: pointer;
-    transition: all 0.2s;
-    box-shadow: 0 8px 20px rgba(108, 92, 231, 0.35);
     display: flex;
     align-items: center;
     gap: 8px;
-  }
-  .btn-action:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(108, 92, 231, 0.5); }
-  .btn-action:active { transform: translateY(0); }
-  .btn-action:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-
-  .btn-fit-mode {
-    background: rgba(30, 30, 48, 0.9);
-    border: 1.5px solid rgba(108, 92, 231, 0.5);
-    color: #a29bfe;
+    box-shadow: 0 8px 20px rgba(108, 92, 231, 0.35);
   }
 
   .canais-fixos {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
     gap: 8px;
-    margin-bottom: 16px;
+    margin-bottom: 14px;
   }
   .canal-btn {
     background: rgba(20, 20, 31, 0.7);
     border: 1.5px solid rgba(108, 92, 231, 0.4);
     color: #a29bfe;
-    padding: 14px 8px;
+    padding: 12px 6px;
     border-radius: 12px;
     font-family: 'Inter', sans-serif;
     font-weight: 700;
-    font-size: 0.8em;
-    letter-spacing: 1.2px;
+    font-size: 0.78em;
+    letter-spacing: 1px;
     text-transform: uppercase;
     cursor: pointer;
-    transition: all 0.2s ease;
     text-align: center;
-    text-shadow: 0 0 10px rgba(162, 155, 254, 0.6);
+    transition: all 0.2s;
   }
   .canal-btn:hover {
-    background: rgba(108, 92, 231, 0.15);
-    border-color: #a29bfe;
+    background: rgba(108, 92, 231, 0.2);
     color: #fff;
-    text-shadow: 0 0 16px rgba(162, 155, 254, 1);
-    box-shadow: 0 0 25px rgba(108, 92, 231, 0.4);
-    transform: translateY(-2px);
+    border-color: #a29bfe;
   }
   .canal-btn.ativo {
-    background: linear-gradient(135deg, rgba(108, 92, 231, 0.35), rgba(162, 155, 254, 0.35));
+    background: linear-gradient(135deg, rgba(108, 92, 231, 0.4), rgba(162, 155, 254, 0.4));
     border-color: #a29bfe;
     color: #fff;
-    box-shadow: 0 0 30px rgba(108, 92, 231, 0.6);
+    box-shadow: 0 0 20px rgba(108, 92, 231, 0.5);
   }
 
   .status {
     text-align: center;
-    margin-top: 14px;
+    margin-top: 12px;
     font-size: 0.85em;
     color: #888;
     min-height: 20px;
@@ -296,33 +289,28 @@ HTML_PAGINA = '''
   }
   .status.ok { color: #00b894; }
   .status.err { color: #e74c3c; }
-  .footer { text-align: center; color: #444; font-size: 0.75em; letter-spacing: 1px; margin-top: 20px; }
+  .footer { text-align: center; color: #444; font-size: 0.75em; margin-top: 20px; }
 </style>
 </head>
 <body>
   <div class="app">
     <div class="brand">
       <h1>MARCOS TV</h1>
-      <div class="sub">Premium Streaming</div>
+      <div class="sub">STREAMING</div>
     </div>
 
     <div class="player-card">
       <video id="player" class="video-js fit-contain" controls playsinline preload="auto"></video>
 
-      <div class="canais-fixos">
+      <div class="canais-fixos" style="margin-top: 14px;">
         {% for c in canais %}
         <div class="canal-btn" data-canal="{{ c }}" onclick="tocarFixo('{{ c }}', this)">{{ c }}</div>
         {% endfor %}
       </div>
 
       <div class="controls">
-        <input id="canal" type="text" placeholder="Nome do canal (ex: discoveryturbo)" autocomplete="off">
-        
-        <button id="btnFit" class="btn-action btn-fit-mode" onclick="alternarModoTela()">
-          📺 TELA: PROPORCIONAL
-        </button>
-
-        <button id="btnPlay" class="btn-action" onclick="tocar()">
+        <input id="canal" type="text" placeholder="Nome do canal..." autocomplete="off">
+        <button id="btnPlay" class="btn-play" onclick="tocar()">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
           PLAY
         </button>
@@ -336,7 +324,7 @@ HTML_PAGINA = '''
 
 <script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
 <script>
-// CONFIGURAÇÕES ANTI-TRAVAMENTO
+// CONFIGURAÇÃO DO PLAYER E BUFFER ANTI-TRAVAMENTO
 var player = videojs('player', {
   controls: true,
   autoplay: false,
@@ -360,32 +348,44 @@ var player = videojs('player', {
 var statusEl = document.getElementById('status');
 var btn = document.getElementById('btnPlay');
 var input = document.getElementById('canal');
-var btnFit = document.getElementById('btnFit');
 
-// MODOS DE TAMANHO DA TELA
+// MODOS DE ENQUADRAMENTO DA TELA
 var modostela = ['fit-contain', 'fit-cover', 'fit-fill'];
+var rótulosModos = ['[ 16:9 ]', '[ CROP ]', '[ FULL ]'];
 var nomesModos = ['PROPORCIONAL', 'PREENCHER', 'ESTICAR'];
 var modoAtualIdx = 0;
 
-function alternarModoTela() {
-  var el = player.el();
-  el.classList.remove(modostela[modoAtualIdx]);
-  modoAtualIdx = (modoAtualIdx + 1) % modostela.length;
-  el.classList.add(modostela[modoAtualIdx]);
-  btnFit.innerText = '📺 TELA: ' + nomesModos[modoAtualIdx];
-}
+// CRIA O BOTÃO DE TAMANHO DENTRO DA BARRA DO PLAYER (AO LADO DO BOTÃO [  ] DE TELA CHEIA)
+var Button = videojs.getComponent('Button');
+var FitButton = videojs.extend(Button, {
+  constructor: function() {
+    Button.apply(this, arguments);
+    this.controlText('Tamanho da Tela');
+  },
+  buildCSSClass: function() {
+    return 'vjs-control vjs-button vjs-fit-btn';
+  },
+  handleClick: function() {
+    var el = player.el();
+    el.classList.remove(modostela[modoAtualIdx]);
+    modoAtualIdx = (modoAtualIdx + 1) % modostela.length;
+    el.classList.add(modostela[modoAtualIdx]);
+    this.el().innerText = rótulosModos[modoAtualIdx];
+    setStatus('Tamanho: ' + nomesModos[modoAtualIdx], 'ok');
+  }
+});
+videojs.registerComponent('FitButton', FitButton);
 
-function setStatus(msg, tipo) {
-  statusEl.className = 'status' + (tipo ? ' ' + tipo : '');
-  statusEl.innerText = msg || '';
-}
+player.ready(function() {
+  var controlBar = player.getChild('controlBar');
+  var fullscreenIdx = controlBar.children().findIndex(c => c.name() === 'FullscreenToggle');
+  var btnInstance = controlBar.addChild('FitButton', {}, fullscreenIdx !== -1 ? fullscreenIdx : undefined);
+  if (btnInstance && btnInstance.el()) {
+    btnInstance.el().innerText = rótulosModos[0];
+  }
+});
 
-function marcarAtivo(el) {
-  document.querySelectorAll('.canal-btn').forEach(function(b){ b.classList.remove('ativo'); });
-  if (el) el.classList.add('ativo');
-}
-
-// HORIZONTAL APENAS AO APERTAR O BOTÃO DE TELA CHEIA DO PLAYER
+// APENAS QUANDO CLICAR NO BOTÃO DE TELA CHEIA DO PLAYER -> GIRA PARA HORIZONTAL
 player.on('fullscreenchange', function() {
   if (player.isFullscreen()) {
     try {
@@ -399,10 +399,22 @@ player.on('fullscreenchange', function() {
     try {
       if (screen.orientation && screen.orientation.unlock) {
         screen.orientation.unlock().catch(function(){});
+      } else if (screen.unlockOrientation) {
+        screen.unlockOrientation();
       }
     } catch(e) {}
   }
 });
+
+function setStatus(msg, tipo) {
+  statusEl.className = 'status' + (tipo ? ' ' + tipo : '');
+  statusEl.innerText = msg || '';
+}
+
+function marcarAtivo(el) {
+  document.querySelectorAll('.canal-btn').forEach(function(b){ b.classList.remove('ativo'); });
+  if (el) el.classList.add('ativo');
+}
 
 function tocarFixo(canal, el) {
   marcarAtivo(el);
@@ -427,19 +439,19 @@ function tocar() {
       if (d.ok) {
         setStatus('Tocando: ' + canal, 'ok');
         
-        // RESETA COMPLETAMENTE O PLAYER PARA TROCAR DE CANAL SEM ERROS
+        // TROCA O CANAL SEM RECARREGAR A PÁGINA
         player.pause();
         player.error(null);
         player.src({ src: '/play/' + encodeURIComponent(canal) + '?t=' + Date.now(), type: 'application/x-mpegURL' });
         player.load();
         player.play().catch(function(e){ setStatus('Erro ao reproduzir: ' + e.message, 'err'); });
       } else {
-        setStatus(d.msg || 'Canal nao encontrado', 'err');
+        setStatus(d.msg || 'Canal indisponivel', 'err');
       }
     })
     .catch(e => {
       btn.disabled = false;
-      setStatus('Erro de conexão: ' + e.message, 'err');
+      setStatus('Erro de conexao: ' + e.message, 'err');
     });
 }
 
@@ -553,4 +565,3 @@ def ts_proxy():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=PORTA, threaded=True, debug=False, use_reloader=False)
-    
