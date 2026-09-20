@@ -38,12 +38,11 @@ CANAIS_FIXOS = [
     "space",
 ]
 
-# ====== POOL DE SESSÕES PERSISTENTES (EVITA SSL HANDSHAKE REPETIDO) ======
+# ====== POOL DE SESSÕES PERSISTENTES ======
 _SESSAO_GLOBAL = None
 _SESSAO_LOCK = threading.Lock()
 
 def get_sessao_persistente():
-    """Mantém uma sessão HTTP/2 aberta para reutilizar conexões TCP/SSL existentes."""
     global _SESSAO_GLOBAL
     with _SESSAO_LOCK:
         if _SESSAO_GLOBAL is None:
@@ -83,7 +82,6 @@ def obter_headers(canal):
     }
 
 def buscar_m3u8(canal):
-    """Baixa o m3u8 utilizando conexão reutilizável."""
     url = montar_url(canal)
     h = obter_headers(canal)
     sess = get_sessao_persistente()
@@ -96,20 +94,17 @@ def buscar_m3u8(canal):
     return None, None
 
 def buscar_segmento(url_segmento, canal):
-    """Baixa um segmento .ts reutilizando conexões e com limpeza ultra-rápida de cache."""
     agora = time.time()
 
-    # 1. Checa Cache em O(1)
     with TS_CACHE_LOCK:
         if url_segmento in TS_CACHE:
             dados, t = TS_CACHE[url_segmento]
             if agora - t < TS_CACHE_TEMPO:
-                TS_CACHE.move_to_end(url_segmento)  # Atualiza prioridade LRU
+                TS_CACHE.move_to_end(url_segmento)
                 return dados, 200
             else:
                 del TS_CACHE[url_segmento]
 
-    # 2. Download via Conexão Persistente
     h = obter_headers(canal)
     sess = get_sessao_persistente()
     
@@ -118,7 +113,6 @@ def buscar_segmento(url_segmento, canal):
             r = sess.get(url_segmento, headers=h, timeout=6, verify=False)
             if r.status_code == 200:
                 with TS_CACHE_LOCK:
-                    # Limpeza rápida LRU se estiver cheio
                     if len(TS_CACHE) >= TS_CACHE_MAX:
                         TS_CACHE.popitem(last=False)
                     TS_CACHE[url_segmento] = (r.content, agora)
@@ -196,7 +190,10 @@ HTML_PAGINA = '''
     width: 100% !important;
     height: 100% !important;
   }
-  .video-js.vjs-fullscreen {
+  .video-js.vjs-fullscreen,
+  .video-js:-webkit-full-screen,
+  .video-js:-moz-full-screen,
+  .video-js:-ms-fullscreen {
     width: 100% !important;
     height: 100% !important;
     max-height: 100% !important;
@@ -326,7 +323,6 @@ HTML_PAGINA = '''
 
 <script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
 <script>
-// CONFIGURAÇÕES FLUIDAS PARA LIVE STREAMING
 var player = videojs('player', {
   controls: true,
   autoplay: false,
@@ -335,9 +331,9 @@ var player = videojs('player', {
   html5: {
     vhs: {
       overrideNative: true,
-      maxBufferLength: 20,           // Buffer reduzido para evitar travamentos de memória
+      maxBufferLength: 20,
       maxMaxBufferLength: 40,
-      liveSyncDuration: 3,           // Mantém a transmissão bem próxima do tempo real
+      liveSyncDuration: 3,
       liveMaxLatencyDuration: 12,
       enableLowInitialPlaylist: true,
       smoothQualityChange: true,
@@ -360,6 +356,26 @@ function marcarAtivo(el) {
   document.querySelectorAll('.canal-btn').forEach(function(b){ b.classList.remove('ativo'); });
   if (el) el.classList.add('ativo');
 }
+
+// ===== ENTRAR EM TELA CHEIA E MODO HORIZONTAL AUTOMATICAMENTE =====
+function entrarTelaCheiaHorizontal() {
+  try {
+    if (!player.isFullscreen()) {
+      player.requestFullscreen();
+    }
+    setTimeout(function() {
+      if (screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock('landscape').catch(function(){});
+      } else if (screen.lockOrientation) {
+        screen.lockOrientation('landscape');
+      }
+    }, 200);
+  } catch(e) {}
+}
+
+player.on('play', function() {
+  entrarTelaCheiaHorizontal();
+});
 
 function tocarFixo(canal, el) {
   marcarAtivo(el);
@@ -384,7 +400,9 @@ function tocar() {
       if (d.ok) {
         setStatus('Tocando: ' + canal, 'ok');
         player.src({ src: '/play/' + encodeURIComponent(canal) + '?t=' + Date.now(), type: 'application/x-mpegURL' });
-        player.play().catch(function(e){ setStatus('Erro: ' + e.message, 'err'); });
+        player.play().then(function() {
+          entrarTelaCheiaHorizontal();
+        }).catch(function(e){ setStatus('Erro: ' + e.message, 'err'); });
       } else {
         setStatus(d.msg || 'Canal nao encontrado', 'err');
       }
@@ -415,7 +433,7 @@ setInterval(function() {
   var t = player.currentTime();
   if (t === ultimoTempo) {
     if (!travadoDesde) travadoDesde = Date.now();
-    else if (Date.now() - travadoDesde > 6000) { // Auto-recupera em 6s sem avanço
+    else if (Date.now() - travadoDesde > 6000) {
       travadoDesde = null;
       recarregar();
     }
@@ -535,3 +553,4 @@ def ts_proxy():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=PORTA, threaded=True, debug=False, use_reloader=False)
+    
