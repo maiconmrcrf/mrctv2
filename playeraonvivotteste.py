@@ -130,13 +130,13 @@ HTML_PAGINA = '''
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>MARCOS TV</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
 <link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet" />
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { height: 100%; }
+  html, body { height: 100%; width: 100%; overflow-x: hidden; }
   body {
     font-family: 'Inter', -apple-system, Arial, sans-serif;
     background: radial-gradient(ellipse at top, #1a1a2e 0%, #0a0a0f 60%);
@@ -145,10 +145,10 @@ HTML_PAGINA = '''
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 16px;
+    padding: 12px;
   }
   .app { width: 100%; max-width: 900px; }
-  .brand { text-align: center; margin-bottom: 20px; }
+  .brand { text-align: center; margin-bottom: 16px; }
   .brand h1 {
     font-size: clamp(2em, 7vw, 3.2em);
     font-weight: 900;
@@ -157,7 +157,7 @@ HTML_PAGINA = '''
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
-    margin-bottom: 4px;
+    margin-bottom: 2px;
   }
   .brand .sub {
     color: #6c5ce7;
@@ -173,24 +173,43 @@ HTML_PAGINA = '''
     -webkit-backdrop-filter: blur(20px);
     border: 1px solid rgba(108, 92, 231, 0.25);
     border-radius: 20px;
-    padding: 16px;
+    padding: 14px;
     box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6);
   }
   
+  /* CONTAINER DO PLAYER */
   .video-js {
     width: 100%;
-    height: 420px;
+    height: 380px;
     border-radius: 14px;
     overflow: hidden;
     background: #000;
   }
 
-  /* FIT MODES PARA O VÍDEO */
+  /* MODOS DE ENQUADRAMENTO */
   .fit-contain video, .fit-contain .vjs-tech { object-fit: contain !important; }
   .fit-cover video, .fit-cover .vjs-tech { object-fit: cover !important; }
   .fit-fill video, .fit-fill .vjs-tech { object-fit: fill !important; }
 
-  /* ESTILIZAÇÃO DO BOTÃO DE TAMANHO NA BARRA DO PLAYER */
+  /* TELA CHEIA 100% PREENCHIDA (EDGE TO EDGE IGUAL À IMAGEM) */
+  .video-js.vjs-fullscreen {
+    width: 100vw !important;
+    height: 100vh !important;
+    top: 0 !important;
+    left: 0 !important;
+    position: fixed !important;
+    border-radius: 0 !important;
+    z-index: 999999 !important;
+  }
+
+  .video-js.vjs-fullscreen video,
+  .video-js.vjs-fullscreen .vjs-tech {
+    width: 100vw !important;
+    height: 100vh !important;
+    object-fit: cover !important; /* FORÇA 100% SEM BORDAS PRETAS */
+  }
+
+  /* BOTÃO DE FORMATO DE TELA NA BARRA DO PLAYER */
   .vjs-fit-btn {
     font-family: 'Inter', sans-serif !important;
     font-size: 11px !important;
@@ -205,15 +224,7 @@ HTML_PAGINA = '''
   }
   .vjs-fit-btn:hover { color: #fff !important; }
 
-  .video-js.vjs-fullscreen,
-  .video-js:-webkit-full-screen,
-  .video-js:-moz-full-screen,
-  .video-js:-ms-fullscreen {
-    width: 100% !important;
-    height: 100% !important;
-    border-radius: 0 !important;
-  }
-  @media (max-width: 640px) { .video-js { height: 230px; } }
+  @media (max-width: 640px) { .video-js:not(.vjs-fullscreen) { height: 220px; } }
 
   .controls { display: flex; gap: 10px; margin-top: 14px; }
   .controls input {
@@ -221,10 +232,10 @@ HTML_PAGINA = '''
     background: rgba(13, 13, 20, 0.9);
     border: 1.5px solid rgba(108, 92, 231, 0.3);
     color: #fff;
-    padding: 14px 16px;
+    padding: 12px 14px;
     border-radius: 12px;
     font-family: 'Inter', sans-serif;
-    font-size: 1em;
+    font-size: 0.95em;
     font-weight: 500;
     outline: none;
   }
@@ -234,7 +245,7 @@ HTML_PAGINA = '''
     background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%);
     color: #fff;
     border: none;
-    padding: 14px 24px;
+    padding: 12px 20px;
     border-radius: 12px;
     font-family: 'Inter', sans-serif;
     font-weight: 700;
@@ -248,19 +259,19 @@ HTML_PAGINA = '''
 
   .canais-fixos {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
     gap: 8px;
-    margin-bottom: 14px;
+    margin-top: 12px;
   }
   .canal-btn {
     background: rgba(20, 20, 31, 0.7);
     border: 1.5px solid rgba(108, 92, 231, 0.4);
     color: #a29bfe;
-    padding: 12px 6px;
-    border-radius: 12px;
+    padding: 10px 4px;
+    border-radius: 10px;
     font-family: 'Inter', sans-serif;
     font-weight: 700;
-    font-size: 0.78em;
+    font-size: 0.75em;
     letter-spacing: 1px;
     text-transform: uppercase;
     cursor: pointer;
@@ -281,15 +292,15 @@ HTML_PAGINA = '''
 
   .status {
     text-align: center;
-    margin-top: 12px;
+    margin-top: 10px;
     font-size: 0.85em;
     color: #888;
-    min-height: 20px;
+    min-height: 18px;
     font-weight: 500;
   }
   .status.ok { color: #00b894; }
   .status.err { color: #e74c3c; }
-  .footer { text-align: center; color: #444; font-size: 0.75em; margin-top: 20px; }
+  .footer { text-align: center; color: #444; font-size: 0.75em; margin-top: 16px; }
 </style>
 </head>
 <body>
@@ -302,7 +313,7 @@ HTML_PAGINA = '''
     <div class="player-card">
       <video id="player" class="video-js fit-contain" controls playsinline preload="auto"></video>
 
-      <div class="canais-fixos" style="margin-top: 14px;">
+      <div class="canais-fixos">
         {% for c in canais %}
         <div class="canal-btn" data-canal="{{ c }}" onclick="tocarFixo('{{ c }}', this)">{{ c }}</div>
         {% endfor %}
@@ -324,7 +335,6 @@ HTML_PAGINA = '''
 
 <script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
 <script>
-// CONFIGURAÇÃO DO PLAYER E BUFFER ANTI-TRAVAMENTO
 var player = videojs('player', {
   controls: true,
   autoplay: false,
@@ -349,18 +359,17 @@ var statusEl = document.getElementById('status');
 var btn = document.getElementById('btnPlay');
 var input = document.getElementById('canal');
 
-// MODOS DE ENQUADRAMENTO DA TELA
+// SISTEMA DE TAMANHO DA TELA
 var modostela = ['fit-contain', 'fit-cover', 'fit-fill'];
 var rótulosModos = ['[ 16:9 ]', '[ CROP ]', '[ FULL ]'];
 var nomesModos = ['PROPORCIONAL', 'PREENCHER', 'ESTICAR'];
 var modoAtualIdx = 0;
 
-// CRIA O BOTÃO DE TAMANHO DENTRO DA BARRA DO PLAYER (AO LADO DO BOTÃO [  ] DE TELA CHEIA)
 var Button = videojs.getComponent('Button');
 var FitButton = videojs.extend(Button, {
   constructor: function() {
     Button.apply(this, arguments);
-    this.controlText('Tamanho da Tela');
+    this.controlText('Tamanho');
   },
   buildCSSClass: function() {
     return 'vjs-control vjs-button vjs-fit-btn';
@@ -385,7 +394,7 @@ player.ready(function() {
   }
 });
 
-// APENAS QUANDO CLICAR NO BOTÃO DE TELA CHEIA DO PLAYER -> GIRA PARA HORIZONTAL
+// AO ENTRAR EM TELA CHEIA -> FORÇA A HORIZONTAL E TELA FULL EDGE-TO-EDGE
 player.on('fullscreenchange', function() {
   if (player.isFullscreen()) {
     try {
@@ -438,8 +447,6 @@ function tocar() {
       btn.disabled = false;
       if (d.ok) {
         setStatus('Tocando: ' + canal, 'ok');
-        
-        // TROCA O CANAL SEM RECARREGAR A PÁGINA
         player.pause();
         player.error(null);
         player.src({ src: '/play/' + encodeURIComponent(canal) + '?t=' + Date.now(), type: 'application/x-mpegURL' });
