@@ -28,8 +28,8 @@ ORIGIN_FIXO = "https://bolodechocolate.fit"
 
 TS_CACHE = {}
 TS_CACHE_LOCK = threading.Lock()
-TS_CACHE_MAX = 500
-TS_CACHE_TEMPO = 90
+TS_CACHE_MAX = 800
+TS_CACHE_TEMPO = 180
 
 CANAIS_FIXOS = [
     "espn",
@@ -72,12 +72,13 @@ def buscar_m3u8(canal):
     url = montar_url(canal)
     h = obter_headers(canal)
     sess = criar_sessao("firefox133")
-    try:
-        r = sess.get(url, headers=h, timeout=15, verify=False)
-        if r.status_code == 200 and ("#EXTM3U" in r.text or "#EXT-X" in r.text):
-            return r, url
-    except Exception:
-        pass
+    for tent in range(3):
+        try:
+            r = sess.get(url, headers=h, timeout=15, verify=False)
+            if r.status_code == 200 and ("#EXTM3U" in r.text or "#EXT-X" in r.text):
+                return r, url
+        except Exception:
+            time.sleep(0.5)
     return None, None
 
 def buscar_segmento(url_segmento, canal):
@@ -89,10 +90,10 @@ def buscar_segmento(url_segmento, canal):
                 return dados, 200
 
     h = obter_headers(canal)
-    for tent in range(2):
+    for tent in range(3):
         sess = criar_sessao("firefox133")
         try:
-            r = sess.get(url_segmento, headers=h, timeout=8, verify=False)
+            r = sess.get(url_segmento, headers=h, timeout=15, verify=False)
             if r.status_code == 200:
                 with TS_CACHE_LOCK:
                     if len(TS_CACHE) >= TS_CACHE_MAX:
@@ -103,7 +104,7 @@ def buscar_segmento(url_segmento, canal):
             if r.status_code in (403, 404):
                 return None, r.status_code
         except Exception:
-            pass
+            time.sleep(0.4)
     return None, 502
 
 HTML_PAGINA = """
@@ -234,7 +235,6 @@ HTML_PAGINA = """
     height: 100% !important;
   }
 
-  /* Em fullscreen o player ocupa tudo */
   .video-js.vjs-fullscreen,
   .video-js:-webkit-full-screen,
   .video-js:-moz-full-screen,
@@ -433,7 +433,19 @@ HTML_PAGINA = """
 
   var player = videojs('player', {
     controls: true, autoplay: false, preload: 'auto', liveui: true,
-    html5: { vhs: { overrideNative: true, maxBufferLength: 60, maxMaxBufferLength: 120, liveSyncDuration: 10, liveMaxLatencyDuration: 60, enableLowInitialPlaylist: true, smoothQualityChange: true, fastQualityChange: true } }
+    html5: {
+      vhs: {
+        overrideNative: true,
+        maxBufferLength: 120,
+        maxMaxBufferLength: 240,
+        liveSyncDuration: 20,
+        liveMaxLatencyDuration: 90,
+        enableLowInitialPlaylist: true,
+        smoothQualityChange: true,
+        fastQualityChange: true,
+        handlePartialData: true
+      }
+    }
   });
 
   var grid = document.getElementById('grid');
@@ -456,7 +468,7 @@ HTML_PAGINA = """
   player.on('play', aplicarFit);
   aplicarFit();
 
-  /* ========== FULLSCREEN + ORIENTAÇÃO AUTOMÁTICA ========== */
+  /* ========== FULLSCREEN + ORIENTAÇÃO ========== */
   (function configurarFullscreen(){
     function travarLandscape(){
       try{
@@ -464,64 +476,35 @@ HTML_PAGINA = """
           screen.orientation.lock('landscape').catch(function(){});
         } else if (screen.lockOrientation) {
           screen.lockOrientation('landscape');
-        } else if (screen.mozLockOrientation) {
-          screen.mozLockOrientation('landscape');
-        } else if (screen.msLockOrientation) {
-          screen.msLockOrientation('landscape');
         }
       } catch(e){}
     }
     function liberarOrientacao(){
       try{
-        if (screen.orientation && screen.orientation.unlock) {
-          screen.orientation.unlock();
-        } else if (screen.unlockOrientation) {
-          screen.unlockOrientation();
-        } else if (screen.mozUnlockOrientation) {
-          screen.mozUnlockOrientation();
-        } else if (screen.msUnlockOrientation) {
-          screen.msUnlockOrientation();
-        }
+        if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock();
+        else if (screen.unlockOrientation) screen.unlockOrientation();
       } catch(e){}
     }
     function aoMudarTela(){
-      var cheio = document.fullscreenElement ||
-                  document.webkitFullscreenElement ||
-                  document.mozFullScreenElement ||
-                  document.msFullscreenElement;
-      if (cheio) {
-        travarLandscape();
-        setTimeout(travarLandscape, 300);
-        setTimeout(travarLandscape, 800);
-      } else {
-        liberarOrientacao();
-      }
+      var cheio = document.fullscreenElement || document.webkitFullscreenElement;
+      if (cheio) { travarLandscape(); setTimeout(travarLandscape, 300); setTimeout(travarLandscape, 800); }
+      else { liberarOrientacao(); }
     }
-
     function instalar(){
       var el = player.el();
       if (!el) return;
       el.addEventListener('fullscreenchange', aoMudarTela);
       el.addEventListener('webkitfullscreenchange', aoMudarTela);
-      el.addEventListener('mozfullscreenchange', aoMudarTela);
-      el.addEventListener('msfullscreenchange', aoMudarTela);
-      // Intercepta o clique no botão nativo de fullscreen
       try{
         player.controlBar.fullscreenToggle.on('click', function(){
-          setTimeout(aoMudarTela, 200);
-          setTimeout(aoMudarTela, 600);
+          setTimeout(aoMudarTela, 200); setTimeout(aoMudarTela, 600);
         });
       }catch(e){}
     }
-
-        if (document.readyState === 'complete' || document.readyState === 'interactive') {
-      setTimeout(instalar, 200);
-    } else {
-      document.addEventListener('DOMContentLoaded', instalar);
-    }
+    if (document.readyState === 'complete' || document.readyState === 'interactive') setTimeout(instalar, 200);
+    else document.addEventListener('DOMContentLoaded', instalar);
   })();
 
-  /* ========== CONTROLES ========== */
   function marcar(canal){
     document.querySelectorAll('.ch').forEach(function(el){
       el.classList.toggle('active', el.getAttribute('data-canal') === canal);
@@ -537,16 +520,14 @@ HTML_PAGINA = """
     setInfo(canal, 'Conectando...');
     player.pause();
     player.src({ src: 'about:blank' });
-
-    fetch('/testar/' + encodeURIComponent(canal))
+        fetch('/testar/' + encodeURIComponent(canal))
       .then(r => r.json())
       .then(d => {
         if (d.ok) {
           var url = '/play/' + encodeURIComponent(canal) + '?t=' + Date.now();
           player.src({ src: url, type: 'application/x-mpegURL' });
           player.play().then(function(){
-            setInfo(canal, 'AO VIVO');
-            aplicarFit();
+            setInfo(canal, 'AO VIVO'); aplicarFit();
           }).catch(function(){ setInfo(canal, 'Aguardando play'); });
         } else {
           setInfo(canal, d.msg || 'Canal indisponivel');
@@ -577,7 +558,7 @@ HTML_PAGINA = """
         player.play().catch(function(){});
         setInfo(c, 'Reconectando...');
       }
-    }, 1500);
+    }, 1000);
   });
   var ultimo = 0, travado = null;
   setInterval(function(){
@@ -585,7 +566,7 @@ HTML_PAGINA = """
     var t = player.currentTime();
     if (t === ultimo){
       if (!travado) travado = Date.now();
-      else if (Date.now() - travado > 10000){
+      else if (Date.now() - travado > 5000){
         travado = null;
         var s = player.src();
         if (s && s.indexOf('/play/') !== -1){
@@ -696,7 +677,7 @@ def ts_proxy():
     return Response(conteudo, status=200, headers={
         'Content-Type': 'video/mp2t',
         'Content-Length': str(len(conteudo)),
-        'Cache-Control': 'public, max-age=60',
+        'Cache-Control': 'public, max-age=180',
         'Accept-Ranges': 'bytes',
         'Access-Control-Allow-Origin': '*'
     })
