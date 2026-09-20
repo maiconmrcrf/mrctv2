@@ -1,5 +1,6 @@
-import os, re, json, time, threading, subprocess, socket
+import os, re, json, time, threading
 import urllib3
+from collections import OrderedDict
 from flask import Flask, Response, request, render_template_string
 from urllib.parse import urljoin, quote, unquote
 
@@ -12,169 +13,126 @@ except ImportError:
     import requests as ImpersonateSession
     USE_CURL = False
 
+import requests as std_requests
+
 app = Flask(__name__)
-PORTA = 9999
-BASE_URL = "https://tvmrc1.serveousercontent.com"
+PORTA = int(os.environ.get("PORT", 10000))
 
-PASTA_PERFIS = os.path.expanduser("./canais_dados")
-os.makedirs(PASTA_PERFIS, exist_ok=True)
+USER_AGENT = "Mozilla/5.0 (Android 15; Mobile; rv:155.0) Gecko/155.0 Firefox/155.0"
+COOKIE_FIXO = "bitmovin_analytics_uuid=a07b3c21-c8bc-4692-8761-53ffa4df341f"
+ORIGIN_FIXO = "https://bolodechocolate.fit"
 
-PROXIES = ["chrome120", "chrome110", "safari_15_5"]
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+# ====== CACHE DE SEGMENTOS TS ======
+TS_CACHE = OrderedDict()
+TS_CACHE_LOCK = threading.Lock()
+TS_CACHE_MAX = 800
+TS_CACHE_TEMPO = 120
 
-EMBEDS_DOMINIOS = [
-    "https://ww5.embedtv.lat",
-    "https://2608.cdnembedcanais.xyz",
-    "https://w1.rdse.buzz"
+# ====== CANAIS FIXOS ======
+CANAIS_FIXOS = [
+    "espn",
+    "premiereclubes",
+    "tnt",
+    "telecinepipoca",
+    "telecinefun",
+    "telecinepremium",
+    "space",
 ]
 
-BASE_SELENIUM = "https://v1.rdse.lat"
+_SESSAO_GLOBAL = None
+_SESSAO_LOCK = threading.Lock()
 
-ALIASES = {
-    "warnerchannel": ["warnerchannel", "warner"],
-    "warner": ["warner", "warnerchannel"],
-    "telecinepremium": ["telecinepremium", "tcpremium"],
-    "telecineaction": ["telecineaction", "tcaction"],
-    "espn": ["espn", "espn1"],
-    "tnt": ["tnt", "tntbr"],
-    "max": ["max", "max1"],
-    "premiere": ["premiere", "premiere1"]
-}
-
-CANAIS_DISPONIVEIS = [
-    "cazetv","cazetv2","cazetv3","cazetv4","cazetv5","cazetv6","combate","dazn",
-    "disneyplus","disneyplus02","disneyplus03","disneyplus04","disneyplus05","disneyplus06","disneyplus07","disneyplus08","disneyplus09",
-    "espn","espn2","espn3","espn4","espn5","espn6","getv",
-    "max","max1","max2","max3","max02","max03","max04","max05","max06",
-    "nsports","nossofutebol",
-    "paramount","paramount02","paramount03","paramount04","paramount05","paramount06","paramount07","paramountnetwork",
-    "premiere","premiere2","premiere3","premiere4","premiere5","premiere6","premiere7","premiere8",
-    "primevideo1","primevideo2",
-    "sportv","sportv2","sportv3","sportv4","sportynet","sportynet1","sportynet2","sportynet3",
-    "ufcfightpass","xsports","band_sports","canalgoat","off",
-    "24h_chaves","24h_dragonballz","24h_naruto","24h_simpsons","24h_todomundoodiaocris",
-    "cartoonnetwork","cartoonito","discoverykids","dreamworks","gloob","gloobinho","nickjr","nickelodeon","tooncast","tvratimbum",
-    "animalplanet","discoverychannel","discoveryhh","discoveryid","discoveryscience","discoverytheater","discoveryturbo","discoveryworld",
-    "fishtv","history","history2","ae","amc","amcseries","axn","adultswim","cinemax","comedycentral",
-    "gnt","hbo","hbo2","hbofamily","hbomundi","hboplus","hbopop","hbosignature","hboxtreme",
-    "hgtv","megapix","sony","space","starchannel","studiouniversal",
-    "tcm","tlc","tnt","tntnovelas","tntseries",
-    "telecineaction","telecinecult","telecinefun","telecinepipoca","telecinepremium","telecinetouch",
-    "universal","usa","warner","warnerchannel",
-    "bandnews","bandrj","bandsp","cnnbrasil","globonews",
-    "recordmg","recordrj","recordsp","recorddf","recordesp",
-    "sbtrj","sbtsp","redetv","aparecida","cancaonova","cultura",
-    "globoam","globoce","globoes","globomg","globopb","globope","globorj","globors","globosp","globodf","globoesp",
-    "mtv","multishow","foodnetwork","masterchef","playboy","sexyhot",
-    "amazonprime","amazonprime02","amazonprime03","amazonprime04","amazonprime05",
-    "appletv01","appletv02","appletv03","appletv04","appletv05","appletv06",
-    "pt_abola","pt_benficatv","pt_canal11","pt_eleven1","pt_eleven2","pt_eleven3",
-    "pt_sporttv1","pt_sporttv2","pt_sporttv3","pt_sporttv4","pt_sporttv5","pt_sporttv6","pt_sporttv7",
-    "globoplaynovelas"
-]
-CANAIS_DISPONIVEIS = list(dict.fromkeys(CANAIS_DISPONIVEIS))
-
-CACHE_SELENIUM = {}
-LOCK_SELENIUM = threading.Lock()
-TEMPO_CACHE_SELENIUM = 600
-
-SESSION = ImpersonateSession.Session() if USE_CURL else ImpersonateSession.Session()
-SESSION.headers.update({"User-Agent": USER_AGENT})
-
-
-def criar_sessao(imp=None):
-    if USE_CURL:
-        try: return ImpersonateSession.Session(impersonate=imp or "chrome120")
-        except Exception: pass
-    return ImpersonateSession.Session()
-
-def extrair_nome_canal(url):
-    m = re.search(r'/([^/]+)/index\.m3u8', url) or re.search(r'/([^/?]+)\.m3u8', url)
-    return m.group(1).lower() if m else "stream"
-
-def substituir_canal_na_url(url_orig, canal):
-    antigo = extrair_nome_canal(url_orig)
-    if antigo and antigo != "stream":
-        res = re.sub(rf'/{re.escape(antigo)}/index\.m3u8', f'/{canal}/index.m3u8', url_orig, flags=re.I)
-        if res != url_orig: return res
-        return re.sub(rf'/{re.escape(antigo)}\.m3u8', f'/{canal}.m3u8', url_orig, flags=re.I)
-    return url_orig
-
-def listar_perfis():
-    return sorted([os.path.splitext(f)[0] for f in os.listdir(PASTA_PERFIS) if f.endswith('.json')])
-
-def carregar_perfil(p):
-    f = os.path.join(PASTA_PERFIS, f"{p}.json")
-    return json.load(open(f, 'r', encoding='utf-8')) if os.path.exists(f) else None
-
-def obter_headers(cfg, ref_custom=None):
-    h = {"User-Agent": cfg.get("user_agent") or USER_AGENT,
-         "Accept": "*/*", "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
-         "Sec-Fetch-Mode": "cors", "Sec-Fetch-Site": "cross-site"}
-    if cfg.get("cookie"): h["Cookie"] = cfg["cookie"]
-    if cfg.get("origin"): h["Origin"] = cfg["origin"]
-    ref = ref_custom or cfg.get("referer")
-    if ref:
-        h["Referer"] = ref
-        if not h.get("Origin"):
-            m = re.match(r'(https?://[^/]+)', ref)
-            if m: h["Origin"] = m.group(1)
-    return h
-
-def extrair_links_playlist(html):
-    ps = [
-        r'(https?://[^\s"\'<>]+\.m3u8[^\s"\'<>]*)',
-        r'(https?://[^\s"\'<>]+\.txt[^\s"\'<>]*)',
-        r'(https?://[^\s"\'<>]+\.m3u[^\s"\'<>]*)',
-        r'file\s*:\s*["\'](https?://[^"\']+)["\']',
-        r'source\s*:\s*["\'](https?://[^"\']+)["\']'
-    ]
-    enc = []
-    for p in ps: enc.extend(re.findall(p, html, re.I))
-    return list(set(enc))
-
-def processar_embed(canal):
-    sess = criar_sessao("chrome120")
-    for var in ALIASES.get(canal, [canal]):
-        for base in EMBEDS_DOMINIOS:
-            embed_url = f"{base}/{var}"
-            try:
-                r = sess.get(embed_url, headers={"User-Agent": USER_AGENT}, timeout=4, verify=False)
-                if r.status_code == 200:
-                    for u in extrair_links_playlist(r.text):
-                        try:
-                            r2 = sess.get(u, headers={"User-Agent": USER_AGENT, "Referer": embed_url}, timeout=4, verify=False)
-                            if r2.status_code == 200 and ("#EXTM3U" in r2.text or "#EXT-X" in r2.text):
-                                cfg = {"perfil_nome": f"embed_{var}", "user_agent": USER_AGENT, "referer": embed_url}
-                                return r2, u, cfg, "chrome120"
-                        except Exception: continue
-            except Exception: continue
-    return None, None, None, None
-
-def processar_bruto(canal):
-    for var in ALIASES.get(canal, [canal]):
-        for p in listar_perfis():
-            cfg = carregar_perfil(p)
-            if not cfg: continue
-            u = substituir_canal_na_url(cfg.get("url", ""), var)
-            for imp in PROXIES:
-                sess = criar_sessao(imp)
+def get_sessao_persistente():
+    global _SESSAO_GLOBAL
+    with _SESSAO_LOCK:
+        if _SESSAO_GLOBAL is None:
+            if USE_CURL:
                 try:
-                    r = sess.get(u, headers=obter_headers(cfg), timeout=4, verify=False)
-                    if r.status_code == 200 and ("#EXTM3U" in r.text or "#EXT-X" in r.text):
-                        return r, u, cfg, imp
-                except Exception: pass
-    return None, None, None, None
+                    _SESSAO_GLOBAL = ImpersonateSession.Session(impersonate="firefox133")
+                except Exception:
+                    _SESSAO_GLOBAL = ImpersonateSession.Session()
+            else:
+                _SESSAO_GLOBAL = ImpersonateSession.Session()
+                adapter = std_requests.adapters.HTTPAdapter(
+                    pool_connections=100, 
+                    pool_maxsize=200, 
+                    max_retries=2
+                )
+                _SESSAO_GLOBAL.mount('https://', adapter)
+                _SESSAO_GLOBAL.mount('http://', adapter)
+        return _SESSAO_GLOBAL
 
+def montar_url(canal):
+    canal = canal.strip().lower()
+    return f"https://f8umt2oop68t.sbs/live/secure/pHGsJJgoEUBc-K5ACe7Hws--gF0WDhHii_3tGSGwoq4/1789760848/1d256d1fe0127694/{canal}/index.m3u8"
 
-@app.after_request
-def cors(r):
-    r.headers['Access-Control-Allow-Origin'] = '*'
-    r.headers['Access-Control-Allow-Headers'] = '*'
-    return r
+def montar_referer(canal):
+    canal = canal.strip().lower()
+    return f"{ORIGIN_FIXO}/play/{canal}.html"
 
+def obter_headers(canal):
+    return {
+        "User-Agent": USER_AGENT,
+        "Accept": "*/*",
+        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+        "Origin": ORIGIN_FIXO,
+        "Referer": montar_referer(canal),
+        "Cookie": COOKIE_FIXO,
+        "Connection": "keep-alive",
+    }
 
-# ================== PÁGINA ==================
+def buscar_m3u8(canal):
+    url = montar_url(canal)
+    h = obter_headers(canal)
+    
+    # 1. Tentativa via Sessão Persistente
+    try:
+        sess = get_sessao_persistente()
+        r = sess.get(url, headers=h, timeout=8, verify=False)
+        if r.status_code == 200 and ("#EXTM3U" in r.text or "#EXT-X" in r.text):
+            return r, url
+    except Exception:
+        pass
+
+    # 2. Fallback direto via requests padrão se a sessão falhar
+    try:
+        r = std_requests.get(url, headers=h, timeout=8, verify=False)
+        if r.status_code == 200 and ("#EXTM3U" in r.text or "#EXT-X" in r.text):
+            return r, url
+    except Exception:
+        pass
+
+    return None, None
+
+def buscar_segmento(url_segmento, canal):
+    agora = time.time()
+
+    with TS_CACHE_LOCK:
+        if url_segmento in TS_CACHE:
+            dados, t = TS_CACHE[url_segmento]
+            if agora - t < TS_CACHE_TEMPO:
+                TS_CACHE.move_to_end(url_segmento)
+                return dados, 200
+            else:
+                del TS_CACHE[url_segmento]
+
+    h = obter_headers(canal)
+    
+    for requester in [get_sessao_persistente(), std_requests]:
+        try:
+            r = requester.get(url_segmento, headers=h, timeout=6, verify=False)
+            if r.status_code == 200:
+                with TS_CACHE_LOCK:
+                    if len(TS_CACHE) >= TS_CACHE_MAX:
+                        TS_CACHE.popitem(last=False)
+                    TS_CACHE[url_segmento] = (r.content, agora)
+                return r.content, 200
+            if r.status_code in (403, 404):
+                return None, r.status_code
+        except Exception:
+            pass
+
+    return None, 502
 
 HTML_PAGINA = '''
 <!DOCTYPE html>
@@ -293,9 +251,6 @@ HTML_PAGINA = '''
     grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
     gap: 8px;
     margin-top: 12px;
-    max-height: 220px;
-    overflow-y: auto;
-    padding-right: 4px;
   }
   .canal-btn {
     background: rgba(20, 20, 31, 0.7);
@@ -347,18 +302,18 @@ HTML_PAGINA = '''
     <div class="player-card">
       <video id="player" class="video-js" controls playsinline preload="auto"></video>
 
+      <div class="canais-fixos">
+        {% for c in canais %}
+        <div class="canal-btn" data-canal="{{ c }}" onclick="tocarFixo('{{ c }}', this)">{{ c }}</div>
+        {% endfor %}
+      </div>
+
       <div class="controls">
         <input id="canal" type="text" placeholder="Nome do canal..." autocomplete="off">
         <button id="btnPlay" class="btn-play" onclick="tocar()">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
           PLAY
         </button>
-      </div>
-
-      <div class="canais-fixos">
-        {% for c in canais %}
-        <div class="canal-btn" data-canal="{{ c }}" onclick="tocarFixo('{{ c }}', this)">{{ c }}</div>
-        {% endfor %}
       </div>
 
       <div class="status" id="status"></div>
@@ -435,18 +390,24 @@ function tocar() {
   setStatus('Carregando ' + canal + '...');
   btn.disabled = true;
 
-  player.pause();
-  player.error(null);
-  player.src({ src: '/play/' + encodeURIComponent(canal) + '?t=' + Date.now(), type: 'application/x-mpegURL' });
-  player.load();
-  player.play()
-    .then(function() {
+  fetch('/testar/' + encodeURIComponent(canal))
+    .then(r => r.json())
+    .then(d => {
       btn.disabled = false;
-      setStatus('Tocando: ' + canal, 'ok');
+      if (d.ok) {
+        setStatus('Tocando: ' + canal, 'ok');
+        player.pause();
+        player.error(null);
+        player.src({ src: '/play/' + encodeURIComponent(canal) + '?t=' + Date.now(), type: 'application/x-mpegURL' });
+        player.load();
+        player.play().catch(function(e){ setStatus('Erro ao reproduzir: ' + e.message, 'err'); });
+      } else {
+        setStatus(d.msg || 'Canal indisponivel', 'err');
+      }
     })
-    .catch(function(e) {
+    .catch(e => {
       btn.disabled = false;
-      setStatus('Tocando: ' + canal, 'ok');
+      setStatus('Erro de conexao: ' + e.message, 'err');
     });
 }
 
@@ -458,115 +419,114 @@ input.addEventListener('keydown', function(e) {
 </html>
 '''
 
+# ============ ROTAS ============
+@app.after_request
+def cors(r):
+    r.headers['Access-Control-Allow-Origin'] = '*'
+    r.headers['Access-Control-Allow-Headers'] = '*'
+    return r
 
 @app.route('/')
 def index():
-    return render_template_string(HTML_PAGINA, canais=CANAIS_DISPONIVEIS)
+    return render_template_string(HTML_PAGINA, canais=CANAIS_FIXOS)
 
+@app.route('/testar/<canal>')
+def testar(canal):
+    canal = canal.strip().lower()
+    if not re.match(r'^[a-z0-9_\-]+$', canal):
+        return {"ok": False, "msg": "Nome invalido"}
+    r, _ = buscar_m3u8(canal)
+    if r:
+        return {"ok": True}
+    return {"ok": False, "msg": "Canal '" + canal + "' indisponivel"}
 
 @app.route('/play/<canal>')
-def rota_play(canal):
-    canal = canal.strip('/').lower()
-    if not re.match(r'^[a-z0-9_\-]+$', canal): return "Nome invalido", 400
-    resp, url_a, cfg, tunel = processar_embed(canal)
-    if resp: return gerar_playlist_proxy(resp, url_a, cfg, tunel)
-    resp, url_a, cfg, tunel = processar_bruto(canal)
-    if resp: return gerar_playlist_proxy(resp, url_a, cfg, tunel)
-    return f"404: {canal}", 404
+def play(canal):
+    canal = canal.strip().lower()
+    if not re.match(r'^[a-z0-9_\-]+$', canal):
+        return "Nome invalido", 400
 
+    r, url_orig = buscar_m3u8(canal)
+    if not r:
+        return "Canal nao encontrado", 404
 
-def gerar_playlist_proxy(resp, url_a, cfg, tunel):
-    host = BASE_URL.rstrip('/')
+    base = getattr(r, 'url', url_orig)
     linhas = []
-    base = getattr(resp, 'url', url_a)
-    p_nome = cfg.get("perfil_nome", "")
-    ref = quote(cfg.get("referer", "") or "", safe='')
-    ck = quote(cfg.get("cookie", "") or "", safe='')
-    for l in resp.text.splitlines():
+    for l in r.text.splitlines():
         ls = l.strip()
         if ls and not ls.startswith('#'):
             abs_url = urljoin(base, ls)
             ep = "/proxy_m3u8" if '.m3u8' in ls else "/ts_proxy"
-            linhas.append(f"{host}{ep}?url={quote(abs_url, safe='')}&perfil={p_nome}&tunel={tunel}&ref={ref}&ck={ck}")
-        else: linhas.append(ls)
-    return Response("\n".join(linhas), status=200, headers={
-        'Content-Type':'application/vnd.apple.mpegurl',
-        'Access-Control-Allow-Origin':'*',
-        'Cache-Control':'no-cache'
-    })
+            linhas.append(f"{ep}?url={quote(abs_url, safe='')}&canal={canal}")
+        else:
+            linhas.append(ls)
 
+    return Response("\n".join(linhas), status=200, headers={
+        'Content-Type': 'application/vnd.apple.mpegurl',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-cache'
+    })
 
 @app.route('/proxy_m3u8')
 def proxy_m3u8():
-    target = unquote(request.args.get('url',''))
-    p = request.args.get('perfil','')
-    tunel = request.args.get('tunel','chrome120')
-    ref = unquote(request.args.get('ref','') or '')
-    ck = unquote(request.args.get('ck','') or '')
-    cfg = carregar_perfil(p) or {"user_agent": USER_AGENT}
-    if ck: cfg["cookie"] = ck
-    try:
-        sess = criar_sessao(tunel)
-        r = sess.get(target, headers=obter_headers(cfg, ref), timeout=8, verify=False)
-        if r.status_code != 200: return f"upstream {r.status_code}", r.status_code
-        host = BASE_URL.rstrip('/')
-        base = getattr(r, 'url', target)
-        linhas = []
-        ref_e = quote(ref or cfg.get("referer","") or "", safe='')
-        ck_e = quote(ck or cfg.get("cookie","") or "", safe='')
-        for l in r.text.splitlines():
-            ls = l.strip()
-            if ls and not ls.startswith('#'):
-                abs_url = urljoin(base, ls)
-                ep = "/proxy_m3u8" if '.m3u8' in ls else "/ts_proxy"
-                linhas.append(f"{host}{ep}?url={quote(abs_url, safe='')}&perfil={p}&tunel={tunel}&ref={ref_e}&ck={ck_e}")
-            else: linhas.append(ls)
-        return Response("\n".join(linhas), status=200, headers={
-            'Content-Type':'application/vnd.apple.mpegurl',
-            'Access-Control-Allow-Origin':'*',
-            'Cache-Control':'no-cache'
-        })
-    except Exception as e:
-        return str(e), 500
+    target = unquote(request.args.get('url', ''))
+    canal = request.args.get('canal', '')
+    if not target or not canal:
+        return "Faltam parametros", 400
 
+    h = obter_headers(canal)
+    
+    r = None
+    try:
+        sess = get_sessao_persistente()
+        r = sess.get(target, headers=h, timeout=8, verify=False)
+    except Exception:
+        pass
+
+    if not r or r.status_code != 200:
+        try:
+            r = std_requests.get(target, headers=h, timeout=8, verify=False)
+        except Exception as e:
+            return f"Erro: {e}", 500
+
+    if r.status_code != 200:
+        return f"upstream {r.status_code}", r.status_code
+
+    base = getattr(r, 'url', target)
+    linhas = []
+    for l in r.text.splitlines():
+        ls = l.strip()
+        if ls and not ls.startswith('#'):
+            abs_url = urljoin(base, ls)
+            ep = "/proxy_m3u8" if '.m3u8' in ls else "/ts_proxy"
+            linhas.append(f"{ep}?url={quote(abs_url, safe='')}&canal={canal}")
+        else:
+            linhas.append(ls)
+
+    return Response("\n".join(linhas), status=200, headers={
+        'Content-Type': 'application/vnd.apple.mpegurl',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-cache'
+    })
 
 @app.route('/ts_proxy')
 def ts_proxy():
-    target = unquote(request.args.get('url',''))
-    p = request.args.get('perfil','')
-    tunel = request.args.get('tunel','chrome120')
-    ref = unquote(request.args.get('ref','') or '')
-    ck = unquote(request.args.get('ck','') or '')
-    cfg = carregar_perfil(p) or {"user_agent": USER_AGENT}
-    if ck: cfg["cookie"] = ck
-    try:
-        sess = criar_sessao(tunel)
-        r = sess.get(target, headers=obter_headers(cfg, ref), stream=True, timeout=15, verify=False)
-        def gerar():
-            if hasattr(r, 'iter_content'):
-                for ch in r.iter_content(128*1024):
-                    if ch: yield ch
-            else: yield r.content
-        return Response(gerar(), status=r.status_code, headers={
-            'Content-Type':'video/mp2t',
-            'Access-Control-Allow-Origin':'*',
-            'Accept-Ranges':'bytes'
-        })
-    except Exception as e:
-        return f"Erro TS: {e}", 500
+    target = unquote(request.args.get('url', ''))
+    canal = request.args.get('canal', '')
+    if not target or not canal:
+        return "Faltam parametros", 400
 
+    conteudo, status = buscar_segmento(target, canal)
+    if conteudo is None:
+        return f"Erro segmento {status}", status
+
+    return Response(conteudo, status=200, headers={
+        'Content-Type': 'video/mp2t',
+        'Content-Length': str(len(conteudo)),
+        'Cache-Control': 'public, max-age=120',
+        'Accept-Ranges': 'bytes',
+        'Access-Control-Allow-Origin': '*'
+    })
 
 if __name__ == '__main__':
-    import logging as _l
-    _l.getLogger('werkzeug').disabled = True
-    _l.getLogger('flask').disabled = True
-    from werkzeug.serving import WSGIRequestHandler
-    WSGIRequestHandler.log = lambda self, type, msg, *args: None
-    print("=" * 55)
-    print("             MARCOS TV - ONLINE")
-    print("=" * 55)
-    print(f"  Local:    http://localhost:{PORTA}")
-    print(f"  Público:  {BASE_URL}")
-    print(f"  Túnel:    ssh -R tvmrc1:80:127.0.0.1:{PORTA} serveo.net")
-    print("=" * 55)
     app.run(host='0.0.0.0', port=PORTA, threaded=True, debug=False, use_reloader=False)
