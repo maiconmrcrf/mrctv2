@@ -64,7 +64,7 @@ def get_sessao_persistente():
 
 def montar_url(canal):
     canal = canal.strip().lower()
-    return f"https://ywppjexvlyulasvmgzjdftfjikth1709oq80soveui6lkbi2iza2zf.cdn13embed.xyz/{canal}/index.m3u8"
+    return f"https://f8umt2oop68t.sbs/live/secure/pHGsJJgoEUBc-K5ACe7Hws--gF0WDhHii_3tGSGwoq4/1789760848/1d256d1fe0127694/{canal}/index.m3u8"
 
 def montar_referer(canal):
     canal = canal.strip().lower()
