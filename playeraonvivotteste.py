@@ -20,7 +20,7 @@ PORTA = int(os.environ.get("PORT", 10000))
 
 USER_AGENT = "Mozilla/5.0 (Android 15; Mobile; rv:155.0) Gecko/155.0 Firefox/155.0"
 COOKIE_FIXO = "bitmovin_analytics_uuid=a07b3c21-c8bc-4692-8761-53ffa4df341f"
-ORIGIN_FIXO = "https://1709.cdnembedcanais.xyz"
+ORIGIN_FIXO = "https://bolodechocolate.fit"
 
 # ====== CACHE DE SEGMENTOS TS ======
 TS_CACHE = OrderedDict()
