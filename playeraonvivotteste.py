@@ -19,8 +19,8 @@ app = Flask(__name__)
 PORTA = int(os.environ.get("PORT", 10000))
 
 USER_AGENT = "Mozilla/5.0 (Android 15; Mobile; rv:155.0) Gecko/155.0 Firefox/155.0"
-COOKIE_FIXO = "bitmovin_analytics_uuid=a07b3c21-c8bc-4692-8761-53ffa4df341f"
-ORIGIN_FIXO = "https://bolodechocolate.fit"
+COOKIE_FIXO = "__dtsu=51A017746968408D2A64C9BB119F7C31; _ga=GA1.1.82788829.1788834221; _ga_2T9N2RHEW3=GS2.1.s1789837957$o9$g0$t1789837957$j60$l0$h0"
+ORIGIN_FIXO = "https://1709.cdnembedcanais.xyz"
 
 # ====== CACHE DE SEGMENTOS TS ======
 TS_CACHE = OrderedDict()
@@ -64,7 +64,7 @@ def get_sessao_persistente():
 
 def montar_url(canal):
     canal = canal.strip().lower()
-    return f"https://f8umt2oop68t.sbs/live/secure/pHGsJJgoEUBc-K5ACe7Hws--gF0WDhHii_3tGSGwoq4/1789760848/1d256d1fe0127694/{canal}/index.m3u8"
+    return f"https://ywppjexvlyulasvmgzjdftfjikth1709oq80soveui6lkbi2iza2zf.cdn13embed.xyz/{canal}/index.m3u8"
 
 def montar_referer(canal):
     canal = canal.strip().lower()
