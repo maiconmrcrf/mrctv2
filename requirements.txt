@@ -1,0 +1,7 @@
+gunicorn
+flask
+curl_cffi
+urllib3
+selenium
+requests
+flask-cors
