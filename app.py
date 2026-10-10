@@ -259,13 +259,18 @@ var statusEl=document.getElementById('status'),nowNome=document.getElementById('
 player.on('fullscreenchange',function(){
   if(player.isFullscreen()){
     try{
-      var el = player.el();
-      if(el.requestFullscreen) el.requestFullscreen();
-      else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-    }catch(e){}
-    try{
       if(screen.orientation && screen.orientation.lock){
-        screen.orientation.lock('landscape').then(function(){}).catch(function(){});
+        screen.orientation.lock('landscape').catch(function(){});
+      }
+    }catch(e){}
+  } else {
+    try{
+      if(screen.orientation && screen.orientation.unlock){
+        screen.orientation.unlock().catch(function(){});
+      }
+    }catch(e){}
+  }
+});
       }
     }catch(e){}
     setTimeout(function(){
