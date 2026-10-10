@@ -298,7 +298,16 @@ function tocar(){
         player.error(null);
         player.src({ src: '/play/' + encodeURIComponent(c) + '?t=' + Date.now(), type: 'application/x-mpegURL' });
         player.load();
-        player.play().catch(function(){ setStatus('Erro ao reproduzir','err'); });
+        player.play().then(function(){
+          if (player.requestFullscreen) {
+            player.requestFullscreen();
+          } else if (player.webkitRequestFullscreen) {
+            player.webkitRequestFullscreen();
+          }
+          if (screen.orientation && screen.orientation.lock) {
+            screen.orientation.lock('landscape').catch(function(){});
+          }
+        }).catch(function(){ setStatus('Erro ao reproduzir','err'); });
       } else {
         setStatus('Indisponível','err');
       }
@@ -364,8 +373,8 @@ def proxy_m3u8():
         if ls and not ls.startswith('#'):
             abs_url = urljoin(base, ls)
             ep = "/proxy_m3u8" if '.m3u8' in ls else "/ts_proxy"
-            linhas.append(f"{ep}?url={quote(abs_url, safe='')}&canal={canal}")
-        else: linhas.append(ls)
+        linhas.append(f"{ep}?url={quote(abs_url, safe='')}&canal={canal}")
+    else: linhas.append(ls)
     return Response("\n".join(linhas), status=200, headers={'Content-Type':'application/vnd.apple.mpegurl','Access-Control-Allow-Origin':'*','Cache-Control':'no-cache'})
 
 @app.route('/ts_proxy')
