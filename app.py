@@ -149,14 +149,7 @@ body{
 .video-wrap{position:relative;border-radius:18px;overflow:hidden;background:#000;box-shadow:0 12px 40px rgba(0,0,0,.25)}
 .video-js{width:100%;height:480px;background:#000}
 .video-js.vjs-fullscreen{width:100vw!important;height:100vh!important;top:0!important;left:0!important;position:fixed!important;border-radius:0!important;z-index:999999!important}
-.video-js.vjs-fullscreen video,.video-js.vjs-fullscreen .vjs-tech{
-  width:100vw!important;height:100vh!important;
-  min-width:100vw!important;min-height:100vh!important;
-  max-width:100vw!important;max-height:100vh!important;
-  object-fit:cover!important;object-position:center center!important;
-  position:absolute!important;top:0!important;left:0!important;
-}
-.vjs-fullscreen .vjs-tech{object-fit:cover!important;width:100vw!important;height:100vh!important}
+.video-js.vjs-fullscreen video,.video-js.vjs-fullscreen .vjs-tech{width:100vw!important;height:100vh!important;object-fit:contain!important}
 .video-js .vjs-big-play-button{background:linear-gradient(135deg,var(--p1),var(--p3))!important;border:none!important;width:84px!important;height:84px!important;line-height:84px!important;border-radius:50%!important;top:50%!important;left:50%!important;margin:-42px 0 0 -42px!important;box-shadow:0 20px 50px rgba(91,75,255,.5),0 0 0 14px rgba(91,75,255,.12)!important}
 .video-js .vjs-big-play-button .vjs-icon-placeholder::before{font-size:40px!important;line-height:84px!important}
 .video-js .vjs-control-bar{background:linear-gradient(180deg,transparent,rgba(0,0,0,.92))!important;height:58px!important;padding:0 10px!important}
@@ -254,53 +247,65 @@ function achaImg(nome){
   }
   return '';
 }
-var player=videojs('player',{controls:true,autoplay:false,preload:'auto',liveui:true,html5:{vhs:{overrideNative:true,maxBufferLength:40,maxMaxBufferLength:80,liveSyncDuration:8,liveMaxLatencyDuration:25,enableLowInitialPlaylist:true,smoothQualityChange:true,fastQualityChange:true,handlePartialData:true}}});
-var statusEl=document.getElementById('status'),nowNome=document.getElementById('nowNome'),nowCover=document.getElementById('nowCover'),btn=document.getElementById('btnPlay'),input=document.getElementById('canal');
-player.on('fullscreenchange',function(){
-  if(player.isFullscreen()){
-    try{
-      if(screen.orientation && screen.orientation.lock){
-        screen.orientation.lock('landscape').catch(function(){});
-      }
-    }catch(e){}
-  } else {
-    try{
-      if(screen.orientation && screen.orientation.unlock){
-        screen.orientation.unlock().catch(function(){});
-      }
-    }catch(e){}
+var player = videojs('player', {
+  controls: true,
+  autoplay: false,
+  preload: 'auto',
+  liveui: true,
+  html5: {
+    vhs: {
+      overrideNative: true,
+      maxBufferLength: 40,
+      maxMaxBufferLength: 80,
+      liveSyncDuration: 8,
+      liveMaxLatencyDuration: 25,
+      enableLowInitialPlaylist: true,
+      smoothQualityChange: true,
+      fastQualityChange: true,
+      handlePartialData: true
+    }
   }
 });
-      }
-    }catch(e){}
-    setTimeout(function(){
-      try{ if(screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape'); }catch(e){}
-    },300);
-  } else {
-    try{ if(screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); }catch(e){}
-  }
-});
-function setStatus(m,t){statusEl.className='now-status'+(t?' '+t:'');statusEl.innerText=m||''}
-function marcarAtivo(el){document.querySelectorAll('.canal').forEach(function(b){b.classList.remove('ativo')});if(el)el.classList.add('ativo')}
+var statusEl = document.getElementById('status');
+var nowNome = document.getElementById('nowNome');
+var nowCover = document.getElementById('nowCover');
+var btn = document.getElementById('btnPlay');
+var input = document.getElementById('canal');
+
+function setStatus(m,t){ statusEl.className='now-status'+(t?' '+t:''); statusEl.innerText=m||''; }
+function marcarAtivo(el){ document.querySelectorAll('.canal').forEach(function(b){ b.classList.remove('ativo'); }); if(el) el.classList.add('ativo'); }
 function atualizaNow(nome){
-  nowNome.innerText=nome;
-  var img=achaImg(nome);
-  if(img){ nowCover.innerHTML='<img src="'+img+'" alt="'+nome+'">'; }
-  else{ nowCover.innerHTML='<span>'+nome.charAt(0).toUpperCase()+'</span>'; }
+  nowNome.innerText = nome;
+  var img = achaImg(nome);
+  if(img){ nowCover.innerHTML = '<img src="'+img+'" alt="'+nome+'">'; }
+  else{ nowCover.innerHTML = '<span>'+nome.charAt(0).toUpperCase()+'</span>'; }
 }
-function tocarFixo(c,el){marcarAtivo(el);input.value=c;tocar()}
+function tocarFixo(c,el){ marcarAtivo(el); input.value = c; tocar(); }
+
 function tocar(){
-  var c=input.value.trim().toLowerCase();
-  if(!c){setStatus('Digite um canal','err');input.focus();return}
+  var c = input.value.trim().toLowerCase();
+  if(!c){ setStatus('Digite um canal','err'); input.focus(); return; }
   atualizaNow(c);
-  setStatus('Carregando...','loading');btn.disabled=true;
-  fetch('/testar/'+encodeURIComponent(c)).then(r=>r.json()).then(d=>{
-    btn.disabled=false;
-    if(d.ok){setStatus('● Ao vivo','ok');player.pause();player.error(null);player.src({src:'/play/'+encodeURIComponent(c)+'?t='+Date.now(),type:'application/x-mpegURL'});player.load();player.play().catch(function(e){setStatus('Erro ao reproduzir','err')});}
-    else setStatus('Indisponível','err');
-  }).catch(e=>{btn.disabled=false;setStatus('Erro de conexão','err')});
+  setStatus('Carregando...','loading');
+  btn.disabled = true;
+  fetch('/testar/' + encodeURIComponent(c))
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      btn.disabled = false;
+      if(d.ok){
+        setStatus('● Ao vivo','ok');
+        player.pause();
+        player.error(null);
+        player.src({ src: '/play/' + encodeURIComponent(c) + '?t=' + Date.now(), type: 'application/x-mpegURL' });
+        player.load();
+        player.play().catch(function(){ setStatus('Erro ao reproduzir','err'); });
+      } else {
+        setStatus('Indisponível','err');
+      }
+    })
+    .catch(function(){ btn.disabled = false; setStatus('Erro de conexão','err'); });
 }
-input.addEventListener('keydown',function(e){if(e.key==='Enter')tocar()});
+input.addEventListener('keydown', function(e){ if(e.key==='Enter') tocar(); });
 </script>
 </body>
 </html>
