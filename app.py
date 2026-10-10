@@ -149,7 +149,14 @@ body{
 .video-wrap{position:relative;border-radius:18px;overflow:hidden;background:#000;box-shadow:0 12px 40px rgba(0,0,0,.25)}
 .video-js{width:100%;height:480px;background:#000}
 .video-js.vjs-fullscreen{width:100vw!important;height:100vh!important;top:0!important;left:0!important;position:fixed!important;border-radius:0!important;z-index:999999!important}
-.video-js.vjs-fullscreen video,.video-js.vjs-fullscreen .vjs-tech{width:100vw!important;height:100vh!important;object-fit:cover!important}
+.video-js.vjs-fullscreen video,.video-js.vjs-fullscreen .vjs-tech{
+  width:100vw!important;height:100vh!important;
+  min-width:100vw!important;min-height:100vh!important;
+  max-width:100vw!important;max-height:100vh!important;
+  object-fit:cover!important;object-position:center center!important;
+  position:absolute!important;top:0!important;left:0!important;
+}
+.vjs-fullscreen .vjs-tech{object-fit:cover!important;width:100vw!important;height:100vh!important}
 .video-js .vjs-big-play-button{background:linear-gradient(135deg,var(--p1),var(--p3))!important;border:none!important;width:84px!important;height:84px!important;line-height:84px!important;border-radius:50%!important;top:50%!important;left:50%!important;margin:-42px 0 0 -42px!important;box-shadow:0 20px 50px rgba(91,75,255,.5),0 0 0 14px rgba(91,75,255,.12)!important}
 .video-js .vjs-big-play-button .vjs-icon-placeholder::before{font-size:40px!important;line-height:84px!important}
 .video-js .vjs-control-bar{background:linear-gradient(180deg,transparent,rgba(0,0,0,.92))!important;height:58px!important;padding:0 10px!important}
