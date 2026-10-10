@@ -148,7 +148,6 @@ body{
 .player-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent,var(--p1),var(--p2),transparent)}
 .video-wrap{position:relative;border-radius:18px;overflow:hidden;background:#000;box-shadow:0 12px 40px rgba(0,0,0,.25)}
 .video-js{width:100%;height:480px;background:#000}
-.video-js video,.video-js .vjs-tech{width:100%!important;height:100%!important;object-fit:cover!important}
 .video-js.vjs-fullscreen{width:100vw!important;height:100vh!important;top:0!important;left:0!important;position:fixed!important;border-radius:0!important;z-index:999999!important}
 .video-js.vjs-fullscreen video,.video-js.vjs-fullscreen .vjs-tech{width:100vw!important;height:100vh!important;object-fit:cover!important}
 .video-js .vjs-big-play-button{background:linear-gradient(135deg,var(--p1),var(--p3))!important;border:none!important;width:84px!important;height:84px!important;line-height:84px!important;border-radius:50%!important;top:50%!important;left:50%!important;margin:-42px 0 0 -42px!important;box-shadow:0 20px 50px rgba(91,75,255,.5),0 0 0 14px rgba(91,75,255,.12)!important}
@@ -299,16 +298,7 @@ function tocar(){
         player.error(null);
         player.src({ src: '/play/' + encodeURIComponent(c) + '?t=' + Date.now(), type: 'application/x-mpegURL' });
         player.load();
-        player.play().then(function(){
-          if (player.requestFullscreen) {
-            player.requestFullscreen();
-          } else if (player.webkitRequestFullscreen) {
-            player.webkitRequestFullscreen();
-          }
-          if (screen.orientation && screen.orientation.lock) {
-            screen.orientation.lock('landscape').catch(function(){});
-          }
-        }).catch(function(){ setStatus('Erro ao reproduzir','err'); });
+        player.play().catch(function(){ setStatus('Erro ao reproduzir','err'); });
       } else {
         setStatus('Indisponível','err');
       }
