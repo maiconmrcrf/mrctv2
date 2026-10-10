@@ -256,7 +256,25 @@ function achaImg(nome){
 }
 var player=videojs('player',{controls:true,autoplay:false,preload:'auto',liveui:true,html5:{vhs:{overrideNative:true,maxBufferLength:40,maxMaxBufferLength:80,liveSyncDuration:8,liveMaxLatencyDuration:25,enableLowInitialPlaylist:true,smoothQualityChange:true,fastQualityChange:true,handlePartialData:true}}});
 var statusEl=document.getElementById('status'),nowNome=document.getElementById('nowNome'),nowCover=document.getElementById('nowCover'),btn=document.getElementById('btnPlay'),input=document.getElementById('canal');
-player.on('fullscreenchange',function(){if(player.isFullscreen()){try{if(screen.orientation&&screen.orientation.lock)screen.orientation.lock('landscape').catch(function(){});}catch(e){}}else{try{if(screen.orientation&&screen.orientation.unlock)screen.orientation.unlock().catch(function(){});}catch(e){}}});
+player.on('fullscreenchange',function(){
+  if(player.isFullscreen()){
+    try{
+      var el = player.el();
+      if(el.requestFullscreen) el.requestFullscreen();
+      else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    }catch(e){}
+    try{
+      if(screen.orientation && screen.orientation.lock){
+        screen.orientation.lock('landscape').then(function(){}).catch(function(){});
+      }
+    }catch(e){}
+    setTimeout(function(){
+      try{ if(screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape'); }catch(e){}
+    },300);
+  } else {
+    try{ if(screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); }catch(e){}
+  }
+});
 function setStatus(m,t){statusEl.className='now-status'+(t?' '+t:'');statusEl.innerText=m||''}
 function marcarAtivo(el){document.querySelectorAll('.canal').forEach(function(b){b.classList.remove('ativo')});if(el)el.classList.add('ativo')}
 function atualizaNow(nome){
